@@ -1,1 +1,9 @@
 ﻿@import "tailwindcss";
+@import "leaflet/dist/leaflet.css";
+
+body {
+  background-color: #060b14;
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, sans-serif;
+  overflow-x: hidden;
+}
