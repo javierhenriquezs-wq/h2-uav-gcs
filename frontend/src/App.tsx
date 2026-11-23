@@ -5,8 +5,6 @@ import {
   Hand, Plane, Sliders
 } from 'lucide-react';
 import L from 'leaflet';
-} from 'lucide-react';
-import L from 'leaflet';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
