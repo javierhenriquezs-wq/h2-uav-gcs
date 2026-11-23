@@ -1,8 +1,10 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  ShieldAlert, Compass, BatteryCharging, Flame, Radio, Navigation,
+  ShieldAlert, Flame, Navigation,
   Play, Pause, RotateCcw, AlertTriangle, Camera, Download, Cpu,
-  Hand, Plane, CheckCircle2, Sliders
+  Hand, Plane, Sliders
+} from 'lucide-react';
+import L from 'leaflet';
 } from 'lucide-react';
 import L from 'leaflet';
 
@@ -164,7 +166,7 @@ export default function App() {
       planeMarkerRef.current.setIcon(planeIcon);
     }
 
-    routeLineRef.current?.setLatLngs(data.waypoints.map((w) => [w.lat, w.lon]));
+    routeLineRef.current?.setLatLngs(data.waypoints.map((w) => [w.lat, w.lon] as [number, number]));
     trailLineRef.current?.setLatLngs(data.trail);
 
     wpLayerRef.current?.clearLayers();
