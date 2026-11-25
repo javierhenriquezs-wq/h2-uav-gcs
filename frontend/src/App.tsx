@@ -63,7 +63,6 @@ interface AircraftSpec {
   altMultiplier: number;
   propulsionLabel: string;
   fuelLabel: string;
-  fuelUnit: string;
   accentColor: string;
   svgPath: string;
 }
@@ -80,7 +79,6 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     altMultiplier: 1.0,
     propulsionLabel: 'PROPULSIÓN HIDRÓGENO (PEM 700 BAR)',
     fuelLabel: 'PRESIÓN TANQUE H2',
-    fuelUnit: 'bar',
     accentColor: '#0ea5e9',
     svgPath: 'M12 2L15 10L22 14L14 15L13 21L12 19L11 21L10 15L2 14L9 10L12 2Z',
   },
@@ -95,7 +93,6 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     altMultiplier: 4.5,
     propulsionLabel: '2x PRATT & WHITNEY J58 TURBORAMJET',
     fuelLabel: 'COMBUSTIBLE JP-7 / POSTQUEMADOR',
-    fuelUnit: '%',
     accentColor: '#f59e0b',
     svgPath: 'M12 1L13.5 8L16 11L21 18L16 18L15 22L14 19L12 21L10 19L9 22L8 18L3 18L8 11L10.5 8L12 1Z',
   },
@@ -110,7 +107,6 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     altMultiplier: 2.6,
     propulsionLabel: 'PRATT & WHITNEY F135-PW-100',
     fuelLabel: 'COMBUSTIBLE INTERNO JP-8',
-    fuelUnit: '%',
     accentColor: '#38bdf8',
     svgPath: 'M12 2L14 8L21 13L21 15L14 15L16 20L13 20L12 18L11 20L8 20L10 15L3 15L3 13L10 8L12 2Z',
   },
@@ -125,7 +121,6 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     altMultiplier: 3.4,
     propulsionLabel: '2x F119-PW-100 EMPUJE VECTORIAL 2D',
     fuelLabel: 'COMBUSTIBLE SUPERCRUCERO',
-    fuelUnit: '%',
     accentColor: '#10b981',
     svgPath: 'M12 1.5L14.2 7.5L22 13.5L21 15.5L14.5 15L17 20.5L13.5 21L12 18.5L10.5 21L7 20.5L9.5 15L3 15.5L2 13.5L9.8 7.5L12 1.5Z',
   },
@@ -135,7 +130,7 @@ const MAP_LAYERS: Record<MapLayerId, { label: string; url: string; attribution: 
   SATELLITE: {
     label: 'Satélite HD',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics',
+    attribution: 'Tiles &copy; Esri &mdash; Maxar, Earthstar Geographics',
     maxZoom: 18,
   },
   TOPO: {
@@ -162,7 +157,7 @@ const CAMERAS: { id: CameraId; short: string; label: string; sensor: string; bas
   { id: 'CAM7_VTAIL', short: '7. COLA', label: 'CAM 07 // EMPENAJE DORSAL 360°', sensor: 'TAIL-CAM 360°', basePan: 180 },
 ];
 
-// Motor gráfico de paisaje y estructura anclada con rotación esférica 360°
+// Motor de renderizado fotorrealista 2.5D con atmósfera volumétrica, cordillera multi-capa y HUD aeronáutico
 function TerrainCanvas({
   camId,
   aircraft,
@@ -185,6 +180,7 @@ function TerrainCanvas({
   useEffect(() => {
     let animId: number;
     let scrollDist = 0;
+    let wavePhase = 0;
 
     const render = () => {
       const canvas = canvasRef.current;
@@ -192,106 +188,157 @@ function TerrainCanvas({
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const w = (canvas.width = canvas.clientWidth || 320);
-      const h = (canvas.height = canvas.clientHeight || 200);
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const clientW = canvas.clientWidth || 480;
+      const clientH = canvas.clientHeight || 320;
+      if (canvas.width !== Math.floor(clientW * dpr) || canvas.height !== Math.floor(clientH * dpr)) {
+        canvas.width = Math.floor(clientW * dpr);
+        canvas.height = Math.floor(clientH * dpr);
+      }
+
+      ctx.save();
+      ctx.scale(dpr, dpr);
+      const w = clientW;
+      const h = clientH;
 
       const lat = data?.lat ?? -18.35;
       const effAlt = Math.round((data?.alt ?? 0) * aircraft.altMultiplier);
       const effSpeed = Math.round((data?.speed ?? 0) * aircraft.speedMultiplier);
       const roll = ((data?.roll ?? 0) * Math.PI) / 180;
-      const pitch = (data?.pitch ?? 0) + tiltOffset * 0.45;
+      const rawPitch = data?.pitch ?? 0;
+      const pitch = rawPitch + tiltOffset * 0.5;
       const baseHeading = (data?.heading ?? 180) + panOffset;
       const headingRad = (baseHeading * Math.PI) / 180;
 
-      scrollDist += Math.max(0.5, effSpeed / 80);
+      scrollDist += Math.max(0.4, effSpeed / 75);
+      wavePhase += 0.04;
 
-      // Bioma dinámico según latitud chilena
       const isNorth = lat > -29;
       const isSouth = lat < -41;
       const isFlir = camId === 'CAM4_FLIR';
-      const isHighAlt = effAlt > 16000; // Estratósfera para SR-71 / F-22
+      const isHighAlt = effAlt > 15500;
 
-      let skyTop = '#020617';
-      let skyHorizon = '#1e3a8a';
-      let groundNear = '#78350f';
-      let groundFar = '#b45309';
-      let mountainColor = '#451a03';
-      let snowColor = '#e2e8f0';
+      // Paleta atmosférica y geográfica realista
+      let skyZenith = '#020817';
+      let skyMid = '#0c2d57';
+      let skyHorizon = '#f59e0b';
+      let hazeColor = 'rgba(253, 224, 71, 0.25)';
+      let groundBase = '#78350f';
+      let groundHighlight = '#b45309';
+      let groundShadow = '#3b1706';
+      let ridgeFar = '#475569';
+      let ridgeLit = '#854d0e';
+      let ridgeDark = '#291509';
+      let snowCap = '#f8fafc';
 
       if (isFlir) {
-        skyTop = '#050505';
-        skyHorizon = '#1c1c1c';
-        groundNear = '#52525b';
-        groundFar = '#27272a';
-        mountainColor = '#a1a1aa';
-        snowColor = '#ffffff';
+        skyZenith = '#040405';
+        skyMid = '#121215';
+        skyHorizon = '#27272a';
+        hazeColor = 'rgba(255,255,255,0.08)';
+        groundBase = '#27272a';
+        groundHighlight = '#52525b';
+        groundShadow = '#09090b';
+        ridgeFar = '#3f3f46';
+        ridgeLit = '#d4d4d8';
+        ridgeDark = '#18181b';
+        snowCap = '#ffffff';
       } else if (isNorth) {
-        skyTop = isHighAlt ? '#000000' : '#03132b';
-        skyHorizon = isHighAlt ? '#0284c7' : '#38bdf8';
-        groundNear = '#92400e';
-        groundFar = '#d97706';
-        mountainColor = '#7c2d12';
-        snowColor = '#fef3c7';
+        skyZenith = isHighAlt ? '#000105' : '#041229';
+        skyMid = isHighAlt ? '#072448' : '#1d4ed8';
+        skyHorizon = '#fbbf24';
+        hazeColor = 'rgba(251, 191, 36, 0.24)';
+        groundBase = '#7c2d12';
+        groundHighlight = '#c2410c';
+        groundShadow = '#431407';
+        ridgeFar = '#64748b';
+        ridgeLit = '#9a3412';
+        ridgeDark = '#3b0f05';
+        snowCap = '#fef3c7';
       } else if (isSouth) {
-        skyTop = isHighAlt ? '#000000' : '#090d16';
-        skyHorizon = '#64748b';
-        groundNear = '#064e3b';
-        groundFar = '#0f766e';
-        mountainColor = '#1e293b';
-        snowColor = '#f8fafc';
+        skyZenith = isHighAlt ? '#000105' : '#071324';
+        skyMid = '#1e3a5f';
+        skyHorizon = '#94a3b8';
+        hazeColor = 'rgba(148, 163, 184, 0.22)';
+        groundBase = '#064e3b';
+        groundHighlight = '#047857';
+        groundShadow = '#022c22';
+        ridgeFar = '#334155';
+        ridgeLit = '#1e293b';
+        ridgeDark = '#0f172a';
+        snowCap = '#ffffff';
       } else {
-        skyTop = isHighAlt ? '#000000' : '#041736';
-        skyHorizon = '#0284c7';
-        groundNear = '#14532d';
-        groundFar = '#3f6212';
-        mountainColor = '#334155';
-        snowColor = '#f1f5f9';
+        skyZenith = isHighAlt ? '#000105' : '#061836';
+        skyMid = '#0369a1';
+        skyHorizon = '#fcd34d';
+        hazeColor = 'rgba(252, 211, 77, 0.2)';
+        groundBase = '#14532d';
+        groundHighlight = '#15803d';
+        groundShadow = '#052e16';
+        ridgeFar = '#475569';
+        ridgeLit = '#3f6212';
+        ridgeDark = '#1a2e05';
+        snowCap = '#f8fafc';
       }
 
       ctx.clearRect(0, 0, w, h);
 
-      // VISTA CENITAL / NADIR (-90° mirando al terreno)
+      // 1. VISTA CENITAL / NADIR (-90° Ortofoto con relieve y costa)
       if (camId === 'CAM3_NADIR') {
         ctx.save();
         ctx.translate(w / 2, h / 2);
         ctx.rotate(-headingRad);
 
-        const diag = Math.hypot(w, h) * 1.5;
-        ctx.fillStyle = groundNear;
+        const diag = Math.hypot(w, h) * 1.55;
+        const groundGrad = ctx.createLinearGradient(-diag / 2, 0, diag / 2, 0);
+        groundGrad.addColorStop(0, isFlir ? '#18181b' : '#0c4a6e');
+        groundGrad.addColorStop(0.32, isFlir ? '#27272a' : '#0284c7');
+        groundGrad.addColorStop(0.35, isFlir ? '#52525b' : '#d97706');
+        groundGrad.addColorStop(0.45, groundBase);
+        groundGrad.addColorStop(1, ridgeDark);
+        ctx.fillStyle = groundGrad;
         ctx.fillRect(-diag / 2, -diag / 2, diag, diag);
 
-        // Costa del Pacífico y Cordillera de los Andes
-        ctx.fillStyle = isFlir ? '#18181b' : '#0369a1';
-        ctx.fillRect(-diag / 2, -diag / 2, diag * 0.35, diag);
-
-        const tileStep = 46;
-        const shiftY = (scrollDist * 1.8) % tileStep;
-        for (let y = -diag / 2 - tileStep; y < diag / 2 + tileStep; y += tileStep) {
-          for (let x = -diag * 0.1; x < diag / 2; x += tileStep) {
-            const ridge = Math.sin((x + y) * 0.05) * 12;
-            ctx.fillStyle = mountainColor;
+        // Cadenas montañosas vistas desde arriba con sombra direccional
+        const step = 52;
+        const shiftY = (scrollDist * 1.7) % step;
+        for (let y = -diag / 2 - step; y < diag / 2 + step; y += step) {
+          for (let x = -diag * 0.08; x < diag / 2; x += step) {
+            const hPeak = 18 + Math.sin((x + y) * 0.04) * 10;
+            // Cara iluminada (oeste)
+            ctx.fillStyle = ridgeLit;
             ctx.beginPath();
             ctx.moveTo(x, y + shiftY);
-            ctx.lineTo(x + 22, y + shiftY - 18 - ridge);
-            ctx.lineTo(x + 44, y + shiftY);
+            ctx.lineTo(x + 24, y + shiftY - hPeak);
+            ctx.lineTo(x + 24, y + shiftY + 8);
+            ctx.closePath();
+            ctx.fill();
+
+            // Cara sombreada (este)
+            ctx.fillStyle = ridgeDark;
+            ctx.beginPath();
+            ctx.moveTo(x + 24, y + shiftY - hPeak);
+            ctx.lineTo(x + 48, y + shiftY);
+            ctx.lineTo(x + 24, y + shiftY + 8);
             ctx.closePath();
             ctx.fill();
 
             if (!isNorth) {
-              ctx.fillStyle = snowColor;
+              ctx.fillStyle = snowCap;
               ctx.beginPath();
-              ctx.moveTo(x + 15, y + shiftY - 12 - ridge * 0.7);
-              ctx.lineTo(x + 22, y + shiftY - 18 - ridge);
-              ctx.lineTo(x + 29, y + shiftY - 12 - ridge * 0.7);
+              ctx.moveTo(x + 17, y + shiftY - hPeak * 0.65);
+              ctx.lineTo(x + 24, y + shiftY - hPeak);
+              ctx.lineTo(x + 31, y + shiftY - hPeak * 0.65);
               ctx.closePath();
               ctx.fill();
             }
           }
         }
 
-        ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.2)' : 'rgba(56,189,248,0.25)';
+        // Malla geodésica
+        ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.16)' : 'rgba(56,189,248,0.22)';
         ctx.lineWidth = 1;
-        for (let g = -diag / 2; g < diag / 2; g += 38) {
+        for (let g = -diag / 2; g < diag / 2; g += 44) {
           ctx.beginPath();
           ctx.moveTo(g, -diag / 2);
           ctx.lineTo(g, diag / 2);
@@ -303,88 +350,180 @@ function TerrainCanvas({
         }
         ctx.restore();
       } else {
-        // VISTAS EN PERSPECTIVA CON GIRO ESFÉRICO 360°
+        // 2. VISTAS EN PERSPECTIVA 2.5D CON PARALAJE Y ATMÓSFERA
         let viewRoll = -roll;
-        const viewPitchOffset = pitch * (compact ? 1.6 : 3.2);
-        if (camId === 'CAM5_ALA_IZQ') viewRoll = (pitch * Math.PI) / 180 - 0.18;
-        if (camId === 'CAM6_ALA_DER') viewRoll = (-pitch * Math.PI) / 180 + 0.18;
+        const viewPitchOffset = pitch * (compact ? 1.8 : 3.8);
+        if (camId === 'CAM5_ALA_IZQ') viewRoll = (rawPitch * Math.PI) / 180 - 0.14;
+        if (camId === 'CAM6_ALA_DER') viewRoll = (-rawPitch * Math.PI) / 180 + 0.14;
         if (camId === 'CAM7_VTAIL') viewRoll = roll * 0.85;
 
         ctx.save();
         ctx.translate(w / 2, h / 2 + viewPitchOffset);
         ctx.rotate(viewRoll);
 
-        const big = Math.hypot(w, h) * 1.9;
+        const big = Math.hypot(w, h) * 2.0;
+        const normalizedAzimuth = ((baseHeading % 360) + 360) % 360;
 
+        // Cielo atmosférico en 3 etapas
         const skyGrad = ctx.createLinearGradient(0, -big / 2, 0, 0);
-        skyGrad.addColorStop(0, skyTop);
+        skyGrad.addColorStop(0, skyZenith);
+        skyGrad.addColorStop(0.65, skyMid);
         skyGrad.addColorStop(1, skyHorizon);
         ctx.fillStyle = skyGrad;
         ctx.fillRect(-big / 2, -big / 2, big, big / 2);
 
-        const groundGrad = ctx.createLinearGradient(0, 0, 0, big / 2);
-        groundGrad.addColorStop(0, groundFar);
-        groundGrad.addColorStop(1, groundNear);
-        ctx.fillStyle = groundGrad;
-        ctx.fillRect(-big / 2, 0, big, big / 2);
-
-        // Océano Pacífico desplazándose con el giro 360°
-        const normalizedAzimuth = ((baseHeading % 360) + 360) % 360;
-        if (normalizedAzimuth > 160 && normalizedAzimuth < 350) {
-          ctx.fillStyle = isFlir ? '#18181b' : '#0284c7';
-          ctx.fillRect(-big / 2, 0, big * 0.55, big * 0.11);
+        // Disco solar / resplandor en el horizonte oeste
+        if (!isFlir && normalizedAzimuth > 170 && normalizedAzimuth < 340) {
+          const sunX = ((normalizedAzimuth - 255) / 85) * (w * 0.45);
+          const sunGlow = ctx.createRadialGradient(sunX, -8, 2, sunX, -8, compact ? 45 : 95);
+          sunGlow.addColorStop(0, 'rgba(255, 251, 235, 0.95)');
+          sunGlow.addColorStop(0.25, 'rgba(253, 224, 71, 0.45)');
+          sunGlow.addColorStop(1, 'rgba(251, 146, 60, 0)');
+          ctx.fillStyle = sunGlow;
+          ctx.fillRect(-big / 2, -big / 2, big, big / 2);
         }
 
-        // Cordillera de los Andes con panorámica 360°
-        const peakCount = 18;
-        const peakStep = big / peakCount;
-        const panPixels = ((normalizedAzimuth * 4) % peakStep);
-        for (let i = -2; i < peakCount + 2; i++) {
-          const px = -big / 2 + i * peakStep - panPixels;
-          const peakH = (compact ? 16 : 34) + Math.sin((i + Math.floor(normalizedAzimuth / 20)) * 1.7) * (compact ? 7 : 15);
-          ctx.fillStyle = mountainColor;
+        // Nubes estratificadas suaves
+        if (!isHighAlt) {
+          ctx.fillStyle = isFlir ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.12)';
+          const cloudShift = (normalizedAzimuth * 2.5) % 240;
+          for (let c = -3; c <= 3; c++) {
+            const cx = c * 240 - cloudShift;
+            const cy = -(compact ? 24 : 52) - (Math.abs(c) % 2) * 18;
+            ctx.beginPath();
+            ctx.ellipse(cx, cy, compact ? 45 : 95, compact ? 5 : 11, 0, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+
+        // Capa 1 de Cordillera (Lejana - Bruma atmosférica)
+        const farCount = 16;
+        const farStep = big / farCount;
+        const farPan = (normalizedAzimuth * 2.2) % farStep;
+        for (let i = -2; i < farCount + 2; i++) {
+          const px = -big / 2 + i * farStep - farPan;
+          const ph = (compact ? 20 : 44) + Math.sin(i * 1.3) * (compact ? 8 : 18);
+          ctx.fillStyle = ridgeFar;
           ctx.beginPath();
-          ctx.moveTo(px - peakStep * 0.65, 0);
-          ctx.lineTo(px, -peakH);
-          ctx.lineTo(px + peakStep * 0.65, 0);
+          ctx.moveTo(px - farStep * 0.75, 0);
+          ctx.lineTo(px, -ph);
+          ctx.lineTo(px + farStep * 0.75, 0);
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        // Capa 2 de Cordillera (Principal con sombreado 3D en dos caras y nieve)
+        const nearCount = 14;
+        const nearStep = big / nearCount;
+        const nearPan = (normalizedAzimuth * 4.2) % nearStep;
+        for (let i = -2; i < nearCount + 2; i++) {
+          const px = -big / 2 + i * nearStep - nearPan;
+          const ph = (compact ? 15 : 34) + Math.cos(i * 1.9) * (compact ? 6 : 14);
+
+          // Ladera iluminada (izquierda)
+          ctx.fillStyle = ridgeLit;
+          ctx.beginPath();
+          ctx.moveTo(px - nearStep * 0.65, 0);
+          ctx.lineTo(px, -ph);
+          ctx.lineTo(px + nearStep * 0.12, 0);
           ctx.closePath();
           ctx.fill();
 
-          if (!isNorth || peakH > 26) {
-            ctx.fillStyle = snowColor;
+          // Ladera en sombra (derecha)
+          ctx.fillStyle = ridgeDark;
+          ctx.beginPath();
+          ctx.moveTo(px, -ph);
+          ctx.lineTo(px + nearStep * 0.65, 0);
+          ctx.lineTo(px + nearStep * 0.12, 0);
+          ctx.closePath();
+          ctx.fill();
+
+          // Casquete de nieve andina
+          if (!isNorth || ph > 26) {
+            ctx.fillStyle = snowCap;
             ctx.beginPath();
-            ctx.moveTo(px - peakStep * 0.24, -peakH * 0.55);
-            ctx.lineTo(px, -peakH);
-            ctx.lineTo(px + peakStep * 0.24, -peakH * 0.55);
+            ctx.moveTo(px - nearStep * 0.22, -ph * 0.58);
+            ctx.lineTo(px, -ph);
+            ctx.lineTo(px + nearStep * 0.24, -ph * 0.54);
+            ctx.lineTo(px + nearStep * 0.04, -ph * 0.62);
             ctx.closePath();
             ctx.fill();
           }
         }
 
-        // Pista de Arica en tierra (altitud < 150m)
-        if ((data?.alt ?? 0) < 150 && (camId === 'CAM1_PROA' || camId === 'CAM2_GIMBAL')) {
+        // Bruma en la línea del horizonte
+        const hGlow = ctx.createLinearGradient(0, -14, 0, 14);
+        hGlow.addColorStop(0, 'rgba(0,0,0,0)');
+        hGlow.addColorStop(0.5, hazeColor);
+        hGlow.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = hGlow;
+        ctx.fillRect(-big / 2, -14, big, 28);
+
+        // Terreno en perspectiva con textura de profundidad
+        const groundGrad = ctx.createLinearGradient(0, 0, 0, big / 2);
+        groundGrad.addColorStop(0, groundHighlight);
+        groundGrad.addColorStop(0.35, groundBase);
+        groundGrad.addColorStop(1, groundShadow);
+        ctx.fillStyle = groundGrad;
+        ctx.fillRect(-big / 2, 0, big, big / 2);
+
+        // Océano Pacífico con reflejo solar y oleaje
+        if (normalizedAzimuth > 155 && normalizedAzimuth < 355) {
+          const seaGrad = ctx.createLinearGradient(0, 0, 0, big * 0.15);
+          seaGrad.addColorStop(0, isFlir ? '#18181b' : '#0369a1');
+          seaGrad.addColorStop(1, isFlir ? '#27272a' : '#0c4a6e');
+          ctx.fillStyle = seaGrad;
+          ctx.fillRect(-big / 2, 0, big * 0.58, big * 0.14);
+
+          // Destellos de olas en el mar
+          ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.12)' : 'rgba(186, 230, 253, 0.35)';
+          ctx.lineWidth = 1;
+          for (let wv = 1; wv <= 5; wv++) {
+            const wy = wv * (compact ? 3 : 6);
+            const wxOffset = Math.sin(wavePhase + wv) * 14;
+            ctx.beginPath();
+            ctx.moveTo(-big * 0.4 + wxOffset, wy);
+            ctx.lineTo(-big * 0.05 + wxOffset, wy);
+            ctx.stroke();
+          }
+        }
+
+        // Pista de Arica iluminada en despegue/aterrizaje (altitud < 160m)
+        if ((data?.alt ?? 0) < 160 && (camId === 'CAM1_PROA' || camId === 'CAM2_GIMBAL')) {
           ctx.fillStyle = '#09090b';
           ctx.beginPath();
-          ctx.moveTo(-18, 2);
-          ctx.lineTo(18, 2);
-          ctx.lineTo(105, big / 2);
-          ctx.lineTo(-105, big / 2);
+          ctx.moveTo(-22, 2);
+          ctx.lineTo(22, 2);
+          ctx.lineTo(125, big / 2);
+          ctx.lineTo(-125, big / 2);
           ctx.closePath();
           ctx.fill();
 
+          // Luces de borde de pista
+          ctx.strokeStyle = '#38bdf8';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(-20, 2);
+          ctx.lineTo(-118, big / 2);
+          ctx.moveTo(20, 2);
+          ctx.lineTo(118, big / 2);
+          ctx.stroke();
+
+          // Eje central luminoso
           ctx.strokeStyle = '#facc15';
-          ctx.setLineDash([12, 10]);
-          ctx.lineWidth = 2;
+          ctx.setLineDash([14, 10]);
+          ctx.lineWidth = 2.2;
           ctx.beginPath();
           ctx.moveTo(0, 6);
           ctx.lineTo(0, big / 2);
           ctx.stroke();
           ctx.setLineDash([]);
         } else {
-          ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.13)';
+          // Líneas dinámicas de flujo de terreno según velocidad
+          ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.09)';
           ctx.lineWidth = 1;
-          for (let r = 1; r <= 6; r++) {
-            const yPos = Math.pow(((r * 35 + scrollDist * 2.4) % 210) / 210, 1.8) * (big * 0.42);
+          for (let r = 1; r <= 7; r++) {
+            const yPos = Math.pow(((r * 30 + scrollDist * 2.5) % 210) / 210, 1.9) * (big * 0.45);
             ctx.beginPath();
             ctx.moveTo(-big / 2, yPos);
             ctx.lineTo(big / 2, yPos);
@@ -392,7 +531,26 @@ function TerrainCanvas({
           }
         }
 
-        ctx.strokeStyle = isFlir ? '#ffffff' : '#34d399';
+        // Escalera de cabeceo (Pitch Ladder) en modo completo
+        if (!compact && (camId === 'CAM1_PROA' || camId === 'CAM2_GIMBAL')) {
+          ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
+          ctx.fillStyle = 'rgba(52, 211, 153, 0.8)';
+          ctx.font = '9px monospace';
+          ctx.lineWidth = 1;
+          [-10, -5, 5, 10].forEach((deg) => {
+            const py = -deg * 4.5;
+            ctx.beginPath();
+            ctx.moveTo(-45, py);
+            ctx.lineTo(-18, py);
+            ctx.moveTo(18, py);
+            ctx.lineTo(45, py);
+            ctx.stroke();
+            ctx.fillText(`${deg}`, 49, py + 3);
+          });
+        }
+
+        // Línea de horizonte artificial
+        ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.85)' : 'rgba(52, 211, 153, 0.85)';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(-big / 2, 0);
@@ -402,106 +560,154 @@ function TerrainCanvas({
         ctx.restore();
       }
 
-      // ESTRUCTURAS ANCLADAS AL FUSELAJE SEGÚN EL MODELO DE AVIÓN SELECCIONADO
+      // 3. ESTRUCTURAS COMPUESTAS ANCLADAS AL FUSELAJE CON SOMBREADO METÁLICO 3D
       const strokeAccent = aircraft.accentColor;
+      const aileronDeflection = (data?.roll ?? 0) * 0.45;
+
       if (camId === 'CAM1_PROA') {
-        // Cúpula / nariz del avión anclada en la parte inferior
-        ctx.fillStyle = '#09090b';
+        const noseGrad = ctx.createLinearGradient(0, h - 22, 0, h + 14);
+        noseGrad.addColorStop(0, '#27272a');
+        noseGrad.addColorStop(1, '#09090b');
+        ctx.fillStyle = noseGrad;
         ctx.strokeStyle = strokeAccent;
-        ctx.lineWidth = 1.3;
+        ctx.lineWidth = 1.4;
         ctx.beginPath();
-        ctx.ellipse(w / 2, h + 14, w * 0.22, 26, 0, Math.PI, 0);
+        ctx.ellipse(w / 2, h + 14, w * 0.2, 25, 0, Math.PI, 0);
         ctx.fill();
         ctx.stroke();
       } else if (camId === 'CAM5_ALA_IZQ') {
-        // Anclada en el encastre izquierdo mirando hacia la punta del ala
-        ctx.fillStyle = '#09090b';
+        const wingGrad = ctx.createLinearGradient(0, h, w * 0.9, h * 0.35);
+        wingGrad.addColorStop(0, '#09090b');
+        wingGrad.addColorStop(0.5, '#27272a');
+        wingGrad.addColorStop(1, '#18181b');
+        ctx.fillStyle = wingGrad;
         ctx.strokeStyle = strokeAccent;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(0, h);
-        ctx.lineTo(w * 0.86, h * 0.34);
-        ctx.lineTo(w * 0.93, h * 0.42);
-        ctx.lineTo(w * 0.25, h);
+        ctx.lineTo(w * 0.87, h * 0.33);
+        ctx.lineTo(w * 0.94, h * 0.41);
+        ctx.lineTo(w * 0.26, h);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        // Wingtip / Misil / Pod según modelo
-        if (aircraft.id === 'F_35' || aircraft.id === 'F_22') {
-          ctx.strokeStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.moveTo(w * 0.82, h * 0.36);
-          ctx.lineTo(w * 0.96, h * 0.28);
-          ctx.stroke();
-        }
+
+        // Alerón móvil articulado
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.42, h * 0.84);
+        ctx.lineTo(w * 0.82, h * 0.47 + aileronDeflection);
+        ctx.stroke();
+
+        // Luz de navegación babor (Roja)
+        ctx.fillStyle = '#ef4444';
+        ctx.beginPath();
+        ctx.arc(w * 0.9, h * 0.36, compact ? 2.5 : 4, 0, Math.PI * 2);
+        ctx.fill();
       } else if (camId === 'CAM6_ALA_DER') {
-        // Anclada en el encastre derecho mirando hacia la punta del ala
-        ctx.fillStyle = '#09090b';
+        const wingGrad = ctx.createLinearGradient(w, h, w * 0.1, h * 0.35);
+        wingGrad.addColorStop(0, '#09090b');
+        wingGrad.addColorStop(0.5, '#27272a');
+        wingGrad.addColorStop(1, '#18181b');
+        ctx.fillStyle = wingGrad;
         ctx.strokeStyle = strokeAccent;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(w, h);
-        ctx.lineTo(w * 0.14, h * 0.34);
-        ctx.lineTo(w * 0.07, h * 0.42);
-        ctx.lineTo(w * 0.75, h);
+        ctx.lineTo(w * 0.13, h * 0.33);
+        ctx.lineTo(w * 0.06, h * 0.41);
+        ctx.lineTo(w * 0.74, h);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        if (aircraft.id === 'F_35' || aircraft.id === 'F_22') {
-          ctx.strokeStyle = '#ef4444';
-          ctx.beginPath();
-          ctx.moveTo(w * 0.18, h * 0.36);
-          ctx.lineTo(w * 0.04, h * 0.28);
-          ctx.stroke();
-        }
+
+        // Alerón móvil articulado
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(w * 0.58, h * 0.84);
+        ctx.lineTo(w * 0.18, h * 0.47 - aileronDeflection);
+        ctx.stroke();
+
+        // Luz de navegación estribor (Verde)
+        ctx.fillStyle = '#22c55e';
+        ctx.beginPath();
+        ctx.arc(w * 0.1, h * 0.36, compact ? 2.5 : 4, 0, Math.PI * 2);
+        ctx.fill();
       } else if (camId === 'CAM7_VTAIL') {
-        // Anclada en el lomo dorsal mirando hacia atrás entre las derivas dobles
-        ctx.fillStyle = '#09090b';
+        const tailGrad = ctx.createLinearGradient(w * 0.5, h, w * 0.5, h * 0.25);
+        tailGrad.addColorStop(0, '#09090b');
+        tailGrad.addColorStop(1, '#27272a');
+        ctx.fillStyle = tailGrad;
         ctx.strokeStyle = strokeAccent;
         ctx.lineWidth = 1.5;
-        const cantOut = aircraft.id === 'SR_71' ? -12 : 18; // SR-71 tiene derivas inclinadas hacia adentro
-        // Deriva izquierda
+        const cantOut = aircraft.id === 'SR_71' ? -12 : 20;
+
+        // Deriva izquierda anclada al lomo
         ctx.beginPath();
         ctx.moveTo(w * 0.43, h);
-        ctx.lineTo(w * 0.32 - cantOut, h * 0.25);
-        ctx.lineTo(w * 0.39 - cantOut, h * 0.25);
+        ctx.lineTo(w * 0.31 - cantOut, h * 0.24);
+        ctx.lineTo(w * 0.38 - cantOut, h * 0.24);
         ctx.lineTo(w * 0.49, h);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
-        // Deriva derecha
+
+        // Deriva derecha anclada al lomo
         ctx.beginPath();
         ctx.moveTo(w * 0.57, h);
-        ctx.lineTo(w * 0.68 + cantOut, h * 0.25);
-        ctx.lineTo(w * 0.61 + cantOut, h * 0.25);
+        ctx.lineTo(w * 0.69 + cantOut, h * 0.24);
+        ctx.lineTo(w * 0.62 + cantOut, h * 0.24);
         ctx.lineTo(w * 0.51, h);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
 
-        // Postquemadores / Toberas en aviones supersónicos
+        // Lomo dorsal central
+        ctx.fillStyle = '#18181b';
+        ctx.beginPath();
+        ctx.ellipse(w * 0.5, h, w * 0.12, 22, 0, Math.PI, 0);
+        ctx.fill();
+        ctx.stroke();
+
+        // Postquemadores supersónicos
         if (aircraft.id !== 'H2_VALKYRIE' && effSpeed > 300) {
-          ctx.fillStyle = aircraft.id === 'SR_71' ? 'rgba(245, 158, 11, 0.7)' : 'rgba(56, 189, 248, 0.75)';
-          ctx.beginPath();
-          ctx.arc(w * 0.44, h * 0.88, compact ? 5 : 9, 0, Math.PI * 2);
-          ctx.arc(w * 0.56, h * 0.88, compact ? 5 : 9, 0, Math.PI * 2);
-          ctx.fill();
+          const flameGlow = ctx.createRadialGradient(w * 0.5, h * 0.9, 2, w * 0.5, h * 0.9, compact ? 18 : 34);
+          flameGlow.addColorStop(0, aircraft.id === 'SR_71' ? 'rgba(251, 191, 36, 0.9)' : 'rgba(56, 189, 248, 0.9)');
+          flameGlow.addColorStop(1, 'rgba(0,0,0,0)');
+          ctx.fillStyle = flameGlow;
+          ctx.fillRect(w * 0.35, h * 0.78, w * 0.3, h * 0.22);
         }
       }
 
-      // BRÚJULA AZIMUTAL SUPERIOR 360°
+      // 4. CINTA GRADUADA DE RUMBO AZIMUTAL 360° SUPERIOR
       if (!compact) {
         const az = Math.round(((baseHeading % 360) + 360) % 360);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-        ctx.fillRect(w * 0.28, 6, w * 0.44, 18);
-        ctx.strokeStyle = '#3f3f46';
-        ctx.strokeRect(w * 0.28, 6, w * 0.44, 18);
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+        ctx.fillRect(w * 0.24, 6, w * 0.52, 22);
+        ctx.strokeStyle = '#27272a';
+        ctx.strokeRect(w * 0.24, 6, w * 0.52, 22);
+
+        // Marcas graduadas dinámicas
+        ctx.strokeStyle = '#71717a';
+        ctx.beginPath();
+        for (let tick = -60; tick <= 60; tick += 15) {
+          const tx = w / 2 + tick * 1.4;
+          if (tx > w * 0.26 && tx < w * 0.74) {
+            ctx.moveTo(tx, 6);
+            ctx.lineTo(tx, tick % 30 === 0 ? 12 : 9);
+          }
+        }
+        ctx.stroke();
+
         ctx.fillStyle = '#38bdf8';
         ctx.font = 'bold 10px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText(`360° GIMBAL // AZ: ${az}° | TILT: ${Math.round(tiltOffset)}°`, w / 2, 18);
+        ctx.fillText(`360° GIMBAL // AZ: ${az}° | TILT: ${Math.round(tiltOffset)}°`, w / 2, 23);
       }
 
+      ctx.restore();
       animId = requestAnimationFrame(render);
     };
 
@@ -518,17 +724,14 @@ export default function App() {
   const [activeCam, setActiveCam] = useState<CameraId>('CAM1_PROA');
   const [recording, setRecording] = useState(false);
 
-  // Selector de modelo de aeronave y capa de mapa de alta resolución
   const [selectedAircraft, setSelectedAircraft] = useState<AircraftId>('H2_VALKYRIE');
   const [mapLayerId, setMapLayerId] = useState<MapLayerId>('SATELLITE');
 
-  // Rotación esférica 360° interactiva de las cámaras
   const [camPan, setCamPan] = useState(0);
   const [camTilt, setCamTilt] = useState(0);
   const isDraggingCam = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
-  // Botonera de procedimiento de despegue y tren de aterrizaje
   const [preflightChecked, setPreflightChecked] = useState(false);
   const [h2CellIgnited, setH2CellIgnited] = useState(false);
   const [gearDown, setGearDown] = useState(true);
@@ -587,7 +790,6 @@ export default function App() {
         setCamTilt(0);
       }
 
-      // Flechas para girar la cámara 360°
       if (e.key === 'ArrowLeft') setCamPan((p) => (p - 10 + 360) % 360);
       if (e.key === 'ArrowRight') setCamPan((p) => (p + 10) % 360);
       if (e.key === 'ArrowUp') setCamTilt((t) => Math.min(60, t + 6));
@@ -605,7 +807,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [data?.mode, activeCam]);
 
-  // Inicializar mapa HD
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
     const map = L.map(mapContainerRef.current, {
@@ -643,14 +844,12 @@ export default function App() {
     mapRef.current = map;
   }, []);
 
-  // Cambiar capa del mapa HD en caliente
   useEffect(() => {
     if (!mapRef.current || !tileLayerRef.current) return;
     const nextLayer = MAP_LAYERS[mapLayerId];
     tileLayerRef.current.setUrl(nextLayer.url);
   }, [mapLayerId]);
 
-  // Actualizar icono del modelo de avión seleccionado en el mapa
   useEffect(() => {
     if (!data || !mapRef.current) return;
 
@@ -753,19 +952,19 @@ export default function App() {
           compact={compact}
         />
 
-        {/* Retícula central */}
+        {/* Retícula táctica central */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           {camId === 'CAM2_GIMBAL' || camId === 'CAM4_FLIR' ? (
-            <div className={`${compact ? 'w-12 h-12' : 'w-28 h-28'} border border-cyan-400/70 relative flex items-center justify-center`}>
-              <div className="w-2 h-2 bg-red-500 rounded-full" />
-              <div className="absolute -top-2 left-1/2 w-0.5 h-2 bg-cyan-400" />
-              <div className="absolute -bottom-2 left-1/2 w-0.5 h-2 bg-cyan-400" />
-              <div className="absolute -left-2 top-1/2 w-2 h-0.5 bg-cyan-400" />
-              <div className="absolute -right-2 top-1/2 w-2 h-0.5 bg-cyan-400" />
+            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-cyan-400/75 relative flex items-center justify-center`}>
+              <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_#ef4444]" />
+              <div className="absolute -top-2.5 left-1/2 w-0.5 h-2.5 bg-cyan-400" />
+              <div className="absolute -bottom-2.5 left-1/2 w-0.5 h-2.5 bg-cyan-400" />
+              <div className="absolute -left-2.5 top-1/2 w-2.5 h-0.5 bg-cyan-400" />
+              <div className="absolute -right-2.5 top-1/2 w-2.5 h-0.5 bg-cyan-400" />
             </div>
           ) : (
-            <div className={`${compact ? 'w-12 h-12' : 'w-28 h-28'} border border-emerald-400/45 rounded-full flex items-center justify-center`}>
-              <div className="w-2.5 h-2.5 border-2 border-amber-400 rounded-full" />
+            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-emerald-400/50 rounded-full flex items-center justify-center`}>
+              <div className="w-3 h-3 border-2 border-amber-400 rounded-full shadow-[0_0_8px_#fbbf24]" />
             </div>
           )}
         </div>
@@ -773,17 +972,17 @@ export default function App() {
         {/* Telemetría superpuesta */}
         {!compact ? (
           <>
-            <div className="absolute top-7 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5 bg-black/80 border border-zinc-800 px-2 py-1 rounded">
+            <div className="absolute top-8 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5 bg-black/80 border border-zinc-800 px-2.5 py-1.5 rounded">
               <div>SPD: {effSpeed} KM/H (M {machVal})</div>
               <div>ALT: {effAlt} M</div>
               <div>V/S: {Math.round((data?.vspeed ?? 0) * aircraft.altMultiplier)} M/S</div>
             </div>
-            <div className="absolute top-7 right-3 text-[11px] font-mono text-emerald-400 text-right space-y-0.5 bg-black/80 border border-zinc-800 px-2 py-1 rounded">
+            <div className="absolute top-8 right-3 text-[11px] font-mono text-emerald-400 text-right space-y-0.5 bg-black/80 border border-zinc-800 px-2.5 py-1.5 rounded">
               <div>HDG: {data?.heading ?? 0}°</div>
               <div>PIT: {data?.pitch ?? 0}° | ROL: {data?.roll ?? 0}°</div>
               <div>GEAR: <span className={gearDown ? 'text-amber-400' : 'text-emerald-400'}>{gearDown ? 'DOWN' : 'UP'}</span></div>
             </div>
-            <div className="absolute bottom-2 left-3 right-3 flex justify-between text-[10px] font-mono text-zinc-200 bg-black/85 border border-zinc-800 px-2 py-1 rounded">
+            <div className="absolute bottom-2.5 left-3 right-3 flex justify-between text-[10px] font-mono text-zinc-200 bg-black/85 border border-zinc-800 px-2.5 py-1 rounded">
               <span className="text-cyan-400 font-bold">{camMeta.label}</span>
               <span>Arrastra para girar 360° (R = Centrar)</span>
             </div>
@@ -881,14 +1080,137 @@ export default function App() {
       </header>
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3 bg-black">
-        {/* COLUMNA IZQUIERDA: SIMULADOR 7 CÁMARAS 360° + BOTONERA DE DESPEGUE Y TREN */}
+        {/* COLUMNA IZQUIERDA (ANTES POSICIÓN DE CÁMARAS): MAPA TÁCTICO HD + CONTROLES + PROPULSIÓN */}
         <div className="lg:col-span-4 flex flex-col gap-3">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col">
+            <div className="px-3 py-2 bg-black border-b border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400">
+                <Navigation className="w-4 h-4" /> MAPA HD
+              </div>
+
+              <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded border border-zinc-800">
+                <Layers className="w-3 h-3 text-zinc-400 ml-1" />
+                {(Object.keys(MAP_LAYERS) as MapLayerId[]).map((lid) => (
+                  <button
+                    key={lid}
+                    onClick={() => setMapLayerId(lid)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                      mapLayerId === lid ? 'bg-cyan-600 text-white font-bold' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {MAP_LAYERS[lid].label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => sendCmd({ action: 'TOGGLE_PAUSE' })}
+                  className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-[11px] px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer"
+                >
+                  {data?.mission_paused ? <Play className="w-3 h-3 text-emerald-400" /> : <Pause className="w-3 h-3 text-amber-400" />}
+                  {data?.mission_paused ? 'Seguir' : 'Órbita'}
+                </button>
+                <select
+                  value={data?.sim_speed || 25}
+                  onChange={(e) => sendCmd({ action: 'SET_SIM_SPEED', speed: Number(e.target.value) })}
+                  className="bg-zinc-900 text-[11px] px-1.5 py-0.5 rounded border border-zinc-800"
+                >
+                  <option value={1}>1x</option>
+                  <option value={25}>25x</option>
+                  <option value={100}>100x</option>
+                </select>
+              </div>
+            </div>
+
+            <div ref={mapContainerRef} className="w-full h-64 z-10" />
+
+            {/* Plan de Vuelo compacto */}
+            <div className="p-2.5 bg-black border-t border-zinc-800 max-h-36 overflow-y-auto">
+              <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">Plan de Vuelo ({aircraft.name} • Clic mapa = Waypoint)</div>
+              <div className="space-y-1">
+                {data?.waypoints.map((wp, idx) => (
+                  <div
+                    key={wp.id}
+                    className={`flex items-center justify-between text-[11px] px-2 py-1 rounded ${
+                      idx === data.current_wp_idx ? 'bg-cyan-950/60 border border-cyan-500/40 text-cyan-200' : 'bg-zinc-950 text-zinc-400 border border-zinc-900'
+                    }`}
+                  >
+                    <span className="truncate font-medium">{wp.name}</span>
+                    <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                      <span>{Math.round(wp.alt * aircraft.altMultiplier)}m</span>
+                      <span>{Math.round(wp.speed * aircraft.speedMultiplier)}km/h</span>
+                      <button
+                        onClick={() => sendCmd({ action: 'UPDATE_WAYPOINT', idx, alt: wp.alt + 500, speed: wp.speed })}
+                        className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 px-1 rounded text-cyan-400 cursor-pointer"
+                      >
+                        +500m
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* CONTROLES MANUALES DE VUELO */}
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
+            <div className="flex justify-between items-center mb-2">
+              <span className="text-[11px] font-semibold text-zinc-400">CONTROLES MANUALES (W/A/S/D + Q/E)</span>
+              <span className={`text-[10px] px-2 py-0.5 rounded ${isHumanControl ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-900 text-zinc-500 border border-zinc-800'}`}>
+                {isHumanControl ? 'ACTIVO' : 'BLOQUEADO EN AUTO'}
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dthrottle: 5 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">+ POTENCIA (E)</button>
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dpitch: 2 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">CABECEAR + (W)</button>
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dthrottle: -5 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">- POTENCIA (Q)</button>
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', droll: -4 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">ALABEO IZQ (A)</button>
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dpitch: -2 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">PICAR - (S)</button>
+              <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', droll: 4 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">ALABEO DER (D)</button>
+            </div>
+          </div>
+
+          {/* PROPULSIÓN */}
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-bold flex items-center gap-1.5" style={{ color: aircraft.accentColor }}>
+                <Flame className="w-4 h-4" /> {aircraft.propulsionLabel}
+              </h2>
+              <span className="text-[11px] font-mono text-emerald-400">
+                {selectedAircraft === 'H2_VALKYRIE' ? `${data?.fuel_cell_kw ?? 0} kW` : aircraft.cruiseMach}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="bg-black p-2 rounded-lg border border-zinc-800">
+                <div className="text-zinc-400 text-[10px]">{aircraft.fuelLabel}</div>
+                <div className="text-sm font-bold font-mono text-cyan-300">
+                  {selectedAircraft === 'H2_VALKYRIE'
+                    ? `${data?.h2_pressure_bar ?? 700} bar`
+                    : `${Math.round(((data?.h2_pressure_bar ?? 700) / 700) * 100)} %`}
+                </div>
+              </div>
+              <div className="bg-black p-2 rounded-lg border border-zinc-800">
+                <div className="text-zinc-400 text-[10px]">TEMP. PLANTA / TOBERAS</div>
+                <div className={`text-sm font-bold font-mono ${(data?.fuel_cell_temp ?? 0) > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
+                  {selectedAircraft === 'H2_VALKYRIE'
+                    ? `${data?.fuel_cell_temp ?? 28} °C`
+                    : `${Math.round((data?.fuel_cell_temp ?? 28) * 11.5)} °C`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* COLUMNA CENTRAL (EN EL MEDIO DE LA PÁGINA): SIMULADOR ÓPTICO 360° DE 7 CÁMARAS + BOTONERA DE DESPEGUE */}
+        <div className="lg:col-span-5 flex flex-col gap-3">
+          <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col flex-1">
             <div className="px-3 py-2 bg-black border-b border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-                <Camera className="w-4 h-4" /> SIMULADOR ÓPTICO 360° (7 CÁMARAS)
+                <Camera className="w-4 h-4" /> SIMULADOR ÓPTICO 360° (7 CÁMARAS ONBOARD)
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1.5">
                 <button
                   onClick={() => {
                     const cam = CAMERAS.find((c) => c.id === activeCam);
@@ -917,6 +1239,7 @@ export default function App() {
               </div>
             </div>
 
+            {/* Selector rápido de las 7 cámaras */}
             <div className="px-2 py-1.5 bg-black border-b border-zinc-800 grid grid-cols-4 gap-1">
               {CAMERAS.map((c) => (
                 <button
@@ -943,9 +1266,10 @@ export default function App() {
               </button>
             </div>
 
-            <div className="relative h-64 bg-black">
+            {/* Visor Óptico Central Ampliado */}
+            <div className="relative flex-1 min-h-[340px] bg-black">
               {activeCam === 'MULTI_7' ? (
-                <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1 p-1 bg-black">
+                <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1.5 p-1.5 bg-black">
                   {CAMERAS.map((c) => (
                     <div
                       key={c.id}
@@ -955,10 +1279,10 @@ export default function App() {
                       {renderCameraViewport(c.id, true)}
                     </div>
                   ))}
-                  <div className="col-span-2 bg-zinc-950 border border-zinc-800 rounded p-2 flex flex-col justify-center text-[10px] font-mono text-zinc-300">
+                  <div className="col-span-2 bg-zinc-950 border border-zinc-800 rounded p-2.5 flex flex-col justify-center text-[11px] font-mono text-zinc-300">
                     <div className="text-cyan-400 font-bold">{aircraft.name} // {aircraft.cruiseMach}</div>
-                    <div>TECHO: {aircraft.ceilingM}m | MAX: {aircraft.maxSpeedKmh}km/h</div>
-                    <div className="text-zinc-500">Clic en cámara o teclas 1–7 (Flechas = 360°)</div>
+                    <div>TECHO: {aircraft.ceilingM}m | VEL. MAX: {aircraft.maxSpeedKmh}km/h</div>
+                    <div className="text-zinc-500 text-[10px]">Clic en cámara o teclas 1–7 (Flechas = Giro 360°)</div>
                   </div>
                 </div>
               ) : (
@@ -969,7 +1293,7 @@ export default function App() {
             {/* BOTONERA COMPLETA DE PROCESO DE DESPEGUE, PRE-FLIGHT CHECK Y TREN DE ATERRIZAJE */}
             <div className="p-3 bg-black border-t border-zinc-800 space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-cyan-400 tracking-wide">PROCEDIMIENTO DE DESPEGUE Y TREN</span>
+                <span className="text-[11px] font-bold text-cyan-400 tracking-wide">PROCEDIMIENTO DE DESPEGUE Y TREN DE ATERRIZAJE</span>
                 <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
                   gearDown ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40'
                 }`}>
@@ -977,7 +1301,7 @@ export default function App() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-4 gap-1 text-[9px] font-mono text-center">
+              <div className="grid grid-cols-4 gap-1.5 text-[10px] font-mono text-center">
                 <div className={`py-1 rounded border ${preflightChecked ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300' : 'bg-zinc-950 border-zinc-800 text-zinc-500'}`}>
                   ESTRUCTURA: {preflightChecked ? 'OK' : 'PEND'}
                 </div>
@@ -992,187 +1316,52 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-1.5 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-xs">
                 <button
                   onClick={() => setPreflightChecked(true)}
-                  className={`py-2 px-2.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
+                  className={`py-2 px-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
                     preflightChecked
                       ? 'bg-emerald-950/60 border-emerald-500/50 text-emerald-300'
                       : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700 text-zinc-200'
                   }`}
                 >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-                  1. Check Pre-Vuelo
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>1. Pre-Vuelo</span>
                 </button>
 
                 <button
                   disabled={!preflightChecked}
                   onClick={() => setH2CellIgnited(true)}
-                  className={`py-2 px-2.5 rounded-lg font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition disabled:opacity-40 ${
+                  className={`py-2 px-2 rounded-lg font-semibold flex items-center justify-center gap-1.5 border cursor-pointer transition disabled:opacity-40 ${
                     h2CellIgnited
                       ? 'bg-cyan-950/60 border-cyan-500/50 text-cyan-300'
                       : 'bg-zinc-900 hover:bg-zinc-800 border-zinc-700 text-zinc-200'
                   }`}
                 >
-                  <Power className="w-4 h-4 text-cyan-400" />
-                  2. Ignición Planta
+                  <Power className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <span>2. Ignición</span>
                 </button>
 
                 <button
                   disabled={!preflightChecked || !h2CellIgnited}
                   onClick={() => sendCmd({ action: 'START_MISSION' })}
-                  className="py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-900 disabled:text-zinc-600 disabled:border disabled:border-zinc-800 text-white cursor-pointer transition"
+                  className="py-2 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-zinc-900 disabled:text-zinc-600 disabled:border disabled:border-zinc-800 text-white cursor-pointer transition"
                 >
-                  <Play className="w-4 h-4" />
-                  3. Iniciar Despegue
+                  <Play className="w-4 h-4 shrink-0" />
+                  <span>3. Despegar</span>
                 </button>
 
                 <button
                   onClick={() => setGearDown(!gearDown)}
-                  className={`py-2 px-2.5 rounded-lg font-bold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
+                  className={`py-2 px-2 rounded-lg font-bold flex items-center justify-center gap-1.5 border cursor-pointer transition ${
                     gearDown
                       ? 'bg-amber-500 hover:bg-amber-400 text-black border-amber-400'
                       : 'bg-zinc-900 hover:bg-zinc-800 text-emerald-400 border-emerald-500/40'
                   }`}
                 >
-                  {gearDown ? <ArrowUpCircle className="w-4 h-4" /> : <ArrowDownCircle className="w-4 h-4" />}
-                  {gearDown ? '4. Subir Tren (G)' : '4. Bajar Tren (G)'}
+                  {gearDown ? <ArrowUpCircle className="w-4 h-4 shrink-0" /> : <ArrowDownCircle className="w-4 h-4 shrink-0" />}
+                  <span>{gearDown ? '4. Subir Tren' : '4. Bajar Tren'}</span>
                 </button>
-              </div>
-            </div>
-
-            {/* Controles de vuelo manual */}
-            <div className="p-3 bg-zinc-950 border-t border-zinc-800">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[11px] font-semibold text-zinc-400">CONTROLES MANUALES (W/A/S/D + Q/E)</span>
-                <span className={`text-[10px] px-2 py-0.5 rounded ${isHumanControl ? 'bg-amber-500/20 text-amber-300' : 'bg-zinc-900 text-zinc-500 border border-zinc-800'}`}>
-                  {isHumanControl ? 'ACTIVO' : 'BLOQUEADO EN AUTO'}
-                </span>
-              </div>
-              <div className="grid grid-cols-3 gap-1.5 text-xs">
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dthrottle: 5 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">+ POTENCIA (E)</button>
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dpitch: 2 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">CABECEAR + (W)</button>
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dthrottle: -5 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">- POTENCIA (Q)</button>
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', droll: -4 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">ALABEO IZQ (A)</button>
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', dpitch: -2 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">PICAR - (S)</button>
-                <button disabled={!isHumanControl} onClick={() => sendCmd({ action: 'MANUAL_INPUT', droll: 4 })} className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 disabled:opacity-40 py-1.5 rounded cursor-pointer">ALABEO DER (D)</button>
-              </div>
-            </div>
-          </div>
-
-          {/* SISTEMA DE PROPULSIÓN ADAPTADO AL MODELO DE AVIÓN */}
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-bold flex items-center gap-1.5" style={{ color: aircraft.accentColor }}>
-                <Flame className="w-4 h-4" /> {aircraft.propulsionLabel}
-              </h2>
-              <span className="text-[11px] font-mono text-emerald-400">
-                {selectedAircraft === 'H2_VALKYRIE' ? `${data?.fuel_cell_kw ?? 0} kW` : aircraft.cruiseMach}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="bg-black p-2.5 rounded-lg border border-zinc-800">
-                <div className="text-zinc-400 text-[10px]">{aircraft.fuelLabel}</div>
-                <div className="text-base font-bold font-mono text-cyan-300">
-                  {selectedAircraft === 'H2_VALKYRIE'
-                    ? `${data?.h2_pressure_bar ?? 700} bar`
-                    : `${Math.round(((data?.h2_pressure_bar ?? 700) / 700) * 100)} %`}
-                </div>
-                <div className="text-[10px] text-zinc-500">Techo: {aircraft.ceilingM} m</div>
-              </div>
-              <div className="bg-black p-2.5 rounded-lg border border-zinc-800">
-                <div className="text-zinc-400 text-[10px]">TEMP. PLANTA / TOBERAS</div>
-                <div className={`text-base font-bold font-mono ${(data?.fuel_cell_temp ?? 0) > 80 ? 'text-red-400' : 'text-emerald-400'}`}>
-                  {selectedAircraft === 'H2_VALKYRIE'
-                    ? `${data?.fuel_cell_temp ?? 28} °C`
-                    : `${Math.round((data?.fuel_cell_temp ?? 28) * 11.5)} °C`}
-                </div>
-                <div className="text-[10px] text-zinc-500">Vel. Máx: {aircraft.maxSpeedKmh} km/h</div>
-              </div>
-              <div className="bg-black p-2.5 rounded-lg border border-zinc-800">
-                <div className="text-zinc-400 text-[10px]">BUS ELÉCTRICO / APU</div>
-                <div className="text-base font-bold font-mono text-amber-300">{data?.battery_soc ?? 100}%</div>
-                <div className="text-[10px] text-zinc-500">{data?.battery_voltage ?? 50.4} V</div>
-              </div>
-              <div className="bg-black p-2.5 rounded-lg border border-zinc-800">
-                <div className="text-zinc-400 text-[10px]">ENLACE & SATÉLITES</div>
-                <div className="text-base font-bold font-mono text-emerald-400">{data?.gps_sats ?? 18} SAT</div>
-                <div className="text-[10px] text-zinc-500">DATALINK / SATCOM OK</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* COLUMNA CENTRAL: MAPA TÁCTICO HD CON SELECTOR DE CAPAS */}
-        <div className="lg:col-span-5 flex flex-col gap-3">
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col flex-1 min-h-[420px]">
-            <div className="px-3 py-2 bg-black border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-                <Navigation className="w-4 h-4" /> MAPA HD
-              </div>
-
-              {/* Selector de capas HD: Satélite / Topográfico / Táctico */}
-              <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded border border-zinc-800">
-                <Layers className="w-3.5 h-3.5 text-zinc-400 ml-1" />
-                {(Object.keys(MAP_LAYERS) as MapLayerId[]).map((lid) => (
-                  <button
-                    key={lid}
-                    onClick={() => setMapLayerId(lid)}
-                    className={`text-[10px] px-2 py-0.5 rounded cursor-pointer ${
-                      mapLayerId === lid ? 'bg-cyan-600 text-white font-bold' : 'text-zinc-400 hover:text-zinc-200'
-                    }`}
-                  >
-                    {MAP_LAYERS[lid].label}
-                  </button>
-                ))}
-              </div>
-
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => sendCmd({ action: 'TOGGLE_PAUSE' })}
-                  className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs px-2 py-1 rounded flex items-center gap-1 cursor-pointer"
-                >
-                  {data?.mission_paused ? <Play className="w-3 h-3 text-emerald-400" /> : <Pause className="w-3 h-3 text-amber-400" />}
-                  {data?.mission_paused ? 'Reanudar' : 'Órbita'}
-                </button>
-                <select
-                  value={data?.sim_speed || 25}
-                  onChange={(e) => sendCmd({ action: 'SET_SIM_SPEED', speed: Number(e.target.value) })}
-                  className="bg-zinc-900 text-xs px-1.5 py-1 rounded border border-zinc-800"
-                >
-                  <option value={1}>1x</option>
-                  <option value={25}>25x</option>
-                  <option value={100}>100x</option>
-                </select>
-              </div>
-            </div>
-
-            <div ref={mapContainerRef} className="w-full flex-1 min-h-[340px] z-10" />
-
-            <div className="p-2.5 bg-black border-t border-zinc-800 max-h-44 overflow-y-auto">
-              <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1.5">Plan de Vuelo Activo ({aircraft.name} • Clic en mapa = Añadir Waypoint)</div>
-              <div className="space-y-1">
-                {data?.waypoints.map((wp, idx) => (
-                  <div
-                    key={wp.id}
-                    className={`flex items-center justify-between text-xs px-2 py-1 rounded ${
-                      idx === data.current_wp_idx ? 'bg-cyan-950/60 border border-cyan-500/40 text-cyan-200' : 'bg-zinc-950 text-zinc-400 border border-zinc-900'
-                    }`}
-                  >
-                    <span className="truncate font-medium">{wp.name}</span>
-                    <div className="flex items-center gap-2 font-mono text-[11px]">
-                      <span>{Math.round(wp.alt * aircraft.altMultiplier)}m</span>
-                      <span>{Math.round(wp.speed * aircraft.speedMultiplier)}km/h</span>
-                      <button
-                        onClick={() => sendCmd({ action: 'UPDATE_WAYPOINT', idx, alt: wp.alt + 500, speed: wp.speed })}
-                        className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 px-1.5 rounded text-cyan-400 cursor-pointer"
-                      >
-                        +500m
-                      </button>
-                    </div>
-                  </div>
-                ))}
               </div>
             </div>
           </div>
