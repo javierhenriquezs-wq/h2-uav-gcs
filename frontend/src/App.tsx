@@ -5,6 +5,7 @@ import {
   Hand, Plane, Sliders, Grid, CheckCircle2, Power, ArrowUpCircle, ArrowDownCircle, Layers, Compass
 } from 'lucide-react';
 import L from 'leaflet';
+import * as THREE from 'three';
 
 const WS_URL = import.meta.env.VITE_WS_URL || 'ws://localhost:8000/ws/telemetry';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
@@ -157,12 +158,131 @@ const CAMERAS: { id: CameraId; short: string; label: string; sensor: string; bas
   { id: 'CAM7_VTAIL', short: '7. COLA', label: 'CAM 07 // EMPENAJE DORSAL 360°', sensor: 'TAIL-CAM 360°', basePan: 180 },
 ];
 
-// Motor de renderizado fotorrealista 2.5D con atmósfera volumétrica, cordillera multi-capa y HUD aeronáutico
-function TerrainCanvas({
+// Genera textura procedural de pista de aeropuerto con marcas de umbral, eje y desgaste de neumáticos
+function createRunwayTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 2048;
+  const ctx = canvas.getContext('2d')!;
+
+  // Asfalto base con grano
+  ctx.fillStyle = '#18181b';
+  ctx.fillRect(0, 0, 512, 2048);
+
+  for (let i = 0; i < 18000; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 2048;
+    ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.22)';
+    ctx.fillRect(x, y, 2, 2);
+  }
+
+  // Líneas laterales blancas
+  ctx.fillStyle = '#e4e4e7';
+  ctx.fillRect(28, 0, 10, 2048);
+  ctx.fillRect(474, 0, 10, 2048);
+
+  // Chevrons amarillos previos al umbral
+  ctx.strokeStyle = '#facc15';
+  ctx.lineWidth = 10;
+  for (let y = 1860; y <= 1980; y += 55) {
+    ctx.beginPath();
+    ctx.moveTo(120, y + 35);
+    ctx.lineTo(256, y);
+    ctx.lineTo(392, y + 35);
+    ctx.stroke();
+  }
+
+  // Barras de umbral (Threshold Piano Keys)
+  ctx.fillStyle = '#f4f4f5';
+  for (let x = 64; x <= 424; x += 48) {
+    if (Math.abs(x - 246) < 28) continue;
+    ctx.fillRect(x, 1690, 24, 130);
+    ctx.fillRect(x, 180, 24, 130);
+  }
+
+  // Marcas de zona de toma de contacto (Touchdown zone) y huellas de goma
+  ctx.fillStyle = 'rgba(9, 9, 11, 0.72)';
+  ctx.fillRect(150, 1350, 75, 320);
+  ctx.fillRect(287, 1350, 75, 320);
+
+  ctx.fillStyle = '#f4f4f5';
+  ctx.fillRect(130, 1450, 32, 95);
+  ctx.fillRect(350, 1450, 32, 95);
+
+  // Línea central discontinua
+  for (let y = 340; y < 1650; y += 90) {
+    ctx.fillRect(250, y, 12, 52);
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.anisotropy = 8;
+  return tex;
+}
+
+// Genera textura de terreno satelital procedural (Desierto de Atacama / Cordillera / Patagonia)
+function createTerrainTexture(region: 'NORTH' | 'CENTRAL' | 'SOUTH', isFlir: boolean): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 512;
+  const ctx = canvas.getContext('2d')!;
+
+  if (isFlir) {
+    ctx.fillStyle = '#27272a';
+  } else if (region === 'NORTH') {
+    ctx.fillStyle = '#8c5332';
+  } else if (region === 'SOUTH') {
+    ctx.fillStyle = '#1e3a2f';
+  } else {
+    ctx.fillStyle = '#4d5d36';
+  }
+  ctx.fillRect(0, 0, 512, 512);
+
+  for (let i = 0; i < 6500; i++) {
+    const x = Math.random() * 512;
+    const y = Math.random() * 512;
+    const r = 2 + Math.random() * 14;
+    if (isFlir) {
+      ctx.fillStyle = Math.random() > 0.5 ? 'rgba(220,220,225,0.06)' : 'rgba(10,10,12,0.12)';
+    } else if (region === 'NORTH') {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(180,115,65,0.12)' : 'rgba(65,32,14,0.14)';
+    } else if (region === 'SOUTH') {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(34,85,60,0.14)' : 'rgba(15,35,28,0.16)';
+    } else {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(110,125,70,0.13)' : 'rgba(40,52,25,0.15)';
+    }
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Cauces y caminos erosionados
+  ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.08)' : 'rgba(45,25,12,0.18)';
+  ctx.lineWidth = 2;
+  for (let c = 0; c < 12; c++) {
+    ctx.beginPath();
+    let cx = Math.random() * 512;
+    let cy = 0;
+    ctx.moveTo(cx, cy);
+    while (cy < 512) {
+      cy += 32;
+      cx += (Math.random() - 0.5) * 40;
+      ctx.lineTo(cx, cy);
+    }
+    ctx.stroke();
+  }
+
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(16, 16);
+  return tex;
+}
+
+// Motor gráfico 3D real en WebGL (Three.js) inspirado en Microsoft Flight Simulator
+function FlightSim3DViewport({
   camId,
   aircraft,
   data,
-  gearDown,
   panOffset,
   tiltOffset,
   compact = false,
@@ -170,552 +290,394 @@ function TerrainCanvas({
   camId: CameraId;
   aircraft: AircraftSpec;
   data: Telemetry | null;
-  gearDown: boolean;
   panOffset: number;
   tiltOffset: number;
   compact?: boolean;
 }) {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const hudCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const stateRef = useRef({ camId, aircraft, data, panOffset, tiltOffset, compact });
+  stateRef.current = { camId, aircraft, data, panOffset, tiltOffset, compact };
 
   useEffect(() => {
-    let animId: number;
-    let scrollDist = 0;
-    let wavePhase = 0;
+    const container = containerRef.current;
+    if (!container) return;
 
-    const render = () => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0xd99b52, 0.00052);
 
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const clientW = canvas.clientWidth || 480;
-      const clientH = canvas.clientHeight || 320;
-      if (canvas.width !== Math.floor(clientW * dpr) || canvas.height !== Math.floor(clientH * dpr)) {
-        canvas.width = Math.floor(clientW * dpr);
-        canvas.height = Math.floor(clientH * dpr);
+    const camera = new THREE.PerspectiveCamera(
+      camId === 'CAM2_GIMBAL' ? 32 : 62,
+      (container.clientWidth || 640) / (container.clientHeight || 400),
+      0.2,
+      3800
+    );
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(container.clientWidth || 640, container.clientHeight || 400);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    container.appendChild(renderer.domElement);
+
+    // Iluminación solar dorada + luz hemisférica atmosférica
+    const hemiLight = new THREE.HemisphereLight(0xfff3d6, 0x4a2c18, 0.85);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight(0xffdf9e, 2.2);
+    sunLight.position.set(-450, 260, -850);
+    scene.add(sunLight);
+
+    // Cúpula celeste con gradiente hora dorada
+    const skyGeo = new THREE.SphereGeometry(2800, 32, 20);
+    const skyCanvas = document.createElement('canvas');
+    skyCanvas.width = 32;
+    skyCanvas.height = 256;
+    const sCtx = skyCanvas.getContext('2d')!;
+    const sGrad = sCtx.createLinearGradient(0, 0, 0, 256);
+    sGrad.addColorStop(0.0, '#071936');
+    sGrad.addColorStop(0.38, '#2b588c');
+    sGrad.addColorStop(0.48, '#f6c270');
+    sGrad.addColorStop(0.53, '#fde68a');
+    sGrad.addColorStop(1.0, '#78350f');
+    sCtx.fillStyle = sGrad;
+    sCtx.fillRect(0, 0, 32, 256);
+    const skyTex = new THREE.CanvasTexture(skyCanvas);
+    const skyDome = new THREE.Mesh(
+      skyGeo,
+      new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
+    );
+    scene.add(skyDome);
+
+    // Nubes volumétricas 3D suaves
+    const cloudsGroup = new THREE.Group();
+    const cloudMat = new THREE.MeshStandardMaterial({
+      color: 0xffedd5,
+      emissive: 0x7c2d12,
+      emissiveIntensity: 0.18,
+      roughness: 0.95,
+      transparent: true,
+      opacity: 0.72,
+    });
+    const puffGeo = new THREE.DodecahedronGeometry(1, 1);
+    for (let i = 0; i < 42; i++) {
+      const cluster = new THREE.Group();
+      const puffs = 3 + Math.floor(Math.random() * 4);
+      for (let p = 0; p < puffs; p++) {
+        const mesh = new THREE.Mesh(puffGeo, cloudMat);
+        mesh.scale.set(28 + Math.random() * 35, 9 + Math.random() * 10, 22 + Math.random() * 28);
+        mesh.position.set((p - 1.5) * 24, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 18);
+        cluster.add(mesh);
       }
+      cluster.position.set(
+        (Math.random() - 0.5) * 2400,
+        140 + Math.random() * 140,
+        (Math.random() - 0.5) * 2400
+      );
+      cloudsGroup.add(cluster);
+    }
+    scene.add(cloudsGroup);
 
-      ctx.save();
-      ctx.scale(dpr, dpr);
-      const w = clientW;
-      const h = clientH;
+    // Malla de terreno 3D con cañones laterales, valle central y cordillera de los Andes al fondo
+    const terrainGeo = new THREE.PlaneGeometry(3200, 3200, 140, 140);
+    terrainGeo.rotateX(-Math.PI / 2);
+    const posAttr = terrainGeo.attributes.position;
+    const colors: number[] = [];
 
-      const lat = data?.lat ?? -18.35;
-      const effAlt = Math.round((data?.alt ?? 0) * aircraft.altMultiplier);
-      const effSpeed = Math.round((data?.speed ?? 0) * aircraft.speedMultiplier);
-      const roll = ((data?.roll ?? 0) * Math.PI) / 180;
-      const rawPitch = data?.pitch ?? 0;
-      const pitch = rawPitch + tiltOffset * 0.5;
-      const baseHeading = (data?.heading ?? 180) + panOffset;
-      const headingRad = (baseHeading * Math.PI) / 180;
+    for (let i = 0; i < posAttr.count; i++) {
+      const x = posAttr.getX(i);
+      const z = posAttr.getZ(i);
 
-      scrollDist += Math.max(0.4, effSpeed / 75);
-      wavePhase += 0.04;
+      // Corredor plano central para aeropuerto y pista
+      const distFromCenter = Math.abs(x);
+      const corridorMask = THREE.MathUtils.smoothstep(distFromCenter, 55, 220);
 
-      const isNorth = lat > -29;
-      const isSouth = lat < -41;
-      const isFlir = camId === 'CAM4_FLIR';
-      const isHighAlt = effAlt > 15500;
+      // Cañones erosionados a los costados y cordillera andina en el horizonte
+      const ridgeNoise =
+        Math.sin(x * 0.012) * Math.cos(z * 0.012) * 32 +
+        Math.sin(x * 0.032 + z * 0.025) * 14 +
+        Math.cos(x * 0.07 - z * 0.06) * 5;
 
-      // Paleta atmosférica y geográfica realista
-      let skyZenith = '#020817';
-      let skyMid = '#0c2d57';
-      let skyHorizon = '#f59e0b';
-      let hazeColor = 'rgba(253, 224, 71, 0.25)';
-      let groundBase = '#78350f';
-      let groundHighlight = '#b45309';
-      let groundShadow = '#3b1706';
-      let ridgeFar = '#475569';
-      let ridgeLit = '#854d0e';
-      let ridgeDark = '#291509';
-      let snowCap = '#f8fafc';
+      const andesBack = z < -550 ? Math.pow((-z - 550) / 1050, 1.55) * 260 : 0;
+      const andesPeaks = z < -550 ? (Math.abs(Math.sin(x * 0.0085)) * 130 + Math.cos(x * 0.022) * 45) * THREE.MathUtils.smoothstep(-z, 550, 950) : 0;
 
-      if (isFlir) {
-        skyZenith = '#040405';
-        skyMid = '#121215';
-        skyHorizon = '#27272a';
-        hazeColor = 'rgba(255,255,255,0.08)';
-        groundBase = '#27272a';
-        groundHighlight = '#52525b';
-        groundShadow = '#09090b';
-        ridgeFar = '#3f3f46';
-        ridgeLit = '#d4d4d8';
-        ridgeDark = '#18181b';
-        snowCap = '#ffffff';
-      } else if (isNorth) {
-        skyZenith = isHighAlt ? '#000105' : '#041229';
-        skyMid = isHighAlt ? '#072448' : '#1d4ed8';
-        skyHorizon = '#fbbf24';
-        hazeColor = 'rgba(251, 191, 36, 0.24)';
-        groundBase = '#7c2d12';
-        groundHighlight = '#c2410c';
-        groundShadow = '#431407';
-        ridgeFar = '#64748b';
-        ridgeLit = '#9a3412';
-        ridgeDark = '#3b0f05';
-        snowCap = '#fef3c7';
-      } else if (isSouth) {
-        skyZenith = isHighAlt ? '#000105' : '#071324';
-        skyMid = '#1e3a5f';
-        skyHorizon = '#94a3b8';
-        hazeColor = 'rgba(148, 163, 184, 0.22)';
-        groundBase = '#064e3b';
-        groundHighlight = '#047857';
-        groundShadow = '#022c22';
-        ridgeFar = '#334155';
-        ridgeLit = '#1e293b';
-        ridgeDark = '#0f172a';
-        snowCap = '#ffffff';
+      const height = Math.max(0, corridorMask * (Math.max(0, ridgeNoise) + 12)) + andesBack + andesPeaks;
+      posAttr.setY(i, height);
+
+      // Coloración por elevación (desierto ocre -> roca andina -> nieve en altas cumbres)
+      if (height > 235) {
+        colors.push(0.95, 0.96, 0.98); // Nieve
+      } else if (height > 120) {
+        colors.push(0.45, 0.36, 0.32); // Roca alta
+      } else if (corridorMask < 0.3) {
+        colors.push(0.68, 0.48, 0.32); // Explanada aeropuerto
       } else {
-        skyZenith = isHighAlt ? '#000105' : '#061836';
-        skyMid = '#0369a1';
-        skyHorizon = '#fcd34d';
-        hazeColor = 'rgba(252, 211, 77, 0.2)';
-        groundBase = '#14532d';
-        groundHighlight = '#15803d';
-        groundShadow = '#052e16';
-        ridgeFar = '#475569';
-        ridgeLit = '#3f6212';
-        ridgeDark = '#1a2e05';
-        snowCap = '#f8fafc';
+        colors.push(0.76, 0.45, 0.25); // Desierto / cañón
+      }
+    }
+    terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    terrainGeo.computeVertexNormals();
+
+    const terrainTex = createTerrainTexture('NORTH', camId === 'CAM4_FLIR');
+    const terrainMat = new THREE.MeshStandardMaterial({
+      map: terrainTex,
+      vertexColors: true,
+      roughness: 0.92,
+      metalness: 0.04,
+    });
+    const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+    scene.add(terrainMesh);
+
+    // Pista de aterrizaje 3D detallada + calle de rodaje + luces PAPI y borde
+    const runwayGroup = new THREE.Group();
+    const runwayTex = createRunwayTexture();
+    const runwayMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(38, 680),
+      new THREE.MeshStandardMaterial({ map: runwayTex, roughness: 0.78, metalness: 0.1 })
+    );
+    runwayMesh.rotation.x = -Math.PI / 2;
+    runwayMesh.position.set(0, 0.25, -240);
+    runwayGroup.add(runwayMesh);
+
+    // Calle de rodaje (Taxiway) lateral derecha
+    const taxiMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(14, 520),
+      new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.85 })
+    );
+    taxiMesh.rotation.x = -Math.PI / 2;
+    taxiMesh.position.set(52, 0.22, -230);
+    runwayGroup.add(taxiMesh);
+
+    // Luces emisivas de borde de pista y luces PAPI rojas/blancas
+    const edgeLightGeo = new THREE.SphereGeometry(0.65, 8, 8);
+    const whiteLightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+    const redLightMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const greenLightMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
+
+    for (let z = 80; z >= -560; z -= 28) {
+      const lLeft = new THREE.Mesh(edgeLightGeo, whiteLightMat);
+      lLeft.position.set(-18.5, 0.6, z);
+      const lRight = new THREE.Mesh(edgeLightGeo, whiteLightMat);
+      lRight.position.set(18.5, 0.6, z);
+      runwayGroup.add(lLeft, lRight);
+    }
+
+    // Luces de umbral (verdes) y luces PAPI laterales (rojas/blancas)
+    for (let x = -16; x <= 16; x += 4) {
+      const thresh = new THREE.Mesh(edgeLightGeo, greenLightMat);
+      thresh.position.set(x, 0.65, 92);
+      runwayGroup.add(thresh);
+    }
+    [-26, -29, -32, -35].forEach((px, idx) => {
+      const papi = new THREE.Mesh(edgeLightGeo, idx < 2 ? redLightMat : whiteLightMat);
+      papi.position.set(px, 0.8, 45);
+      runwayGroup.add(papi);
+    });
+    scene.add(runwayGroup);
+
+    // Grupo del avión (para anclar cámara en proa, alas, cola o nadir)
+    const aircraftRig = new THREE.Group();
+    scene.add(aircraftRig);
+
+    // Cúpula / nariz compuesta visible en CAM1_PROA
+    const noseMesh = new THREE.Mesh(
+      new THREE.SphereGeometry(1.15, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.25, metalness: 0.8 })
+    );
+    noseMesh.position.set(0, -1.35, -1.85);
+    noseMesh.rotation.x = 0.25;
+    aircraftRig.add(noseMesh);
+
+    // Alas compuestas visibles en CAM5_ALA_IZQ y CAM6_ALA_DER
+    const wingMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.35, metalness: 0.75 });
+    const leftWing = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.14, 1.8), wingMat);
+    leftWing.position.set(-4.5, -0.55, 0.4);
+    leftWing.rotation.y = 0.18;
+    const rightWing = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.14, 1.8), wingMat);
+    rightWing.position.set(4.5, -0.55, 0.4);
+    rightWing.rotation.y = -0.18;
+    aircraftRig.add(leftWing, rightWing);
+
+    // Estabilizadores dobles V-Tail visibles en CAM7_VTAIL
+    const vTailLeft = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.4, 1.4), wingMat);
+    vTailLeft.position.set(-0.9, 0.7, 3.2);
+    vTailLeft.rotation.z = 0.48;
+    const vTailRight = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.4, 1.4), wingMat);
+    vTailRight.position.set(0.9, 0.7, 3.2);
+    vTailRight.rotation.z = -0.48;
+    aircraftRig.add(vTailLeft, vTailRight);
+
+    let animId: number;
+    let travelZ = 0;
+
+    const animate = () => {
+      const { camId: curCam, aircraft: curAc, data: curData, panOffset: curPan, tiltOffset: curTilt, compact: isCompact } = stateRef.current;
+
+      const w = container.clientWidth || 640;
+      const h = container.clientHeight || 400;
+      if (renderer.domElement.width !== Math.floor(w * renderer.getPixelRatio()) || renderer.domElement.height !== Math.floor(h * renderer.getPixelRatio())) {
+        renderer.setSize(w, h);
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
       }
 
-      ctx.clearRect(0, 0, w, h);
+      const effAlt = (curData?.alt ?? 0) * curAc.altMultiplier;
+      const effSpeed = (curData?.speed ?? 0) * curAc.speedMultiplier;
+      const rollRad = ((curData?.roll ?? 0) * Math.PI) / 180;
+      const pitchRad = ((curData?.pitch ?? 0) * Math.PI) / 180;
 
-      // 1. VISTA CENITAL / NADIR (-90° Ortofoto con relieve y costa)
-      if (camId === 'CAM3_NADIR') {
-        ctx.save();
-        ctx.translate(w / 2, h / 2);
-        ctx.rotate(-headingRad);
+      // Desplazamiento continuo sobre el terreno según velocidad real
+      travelZ += (effSpeed / 3600) * 18;
+      if (effAlt > 120) {
+        terrainMesh.position.z = (travelZ % 200);
+        runwayGroup.visible = false;
+      } else {
+        terrainMesh.position.z = 0;
+        runwayGroup.visible = true;
+      }
 
-        const diag = Math.hypot(w, h) * 1.55;
-        const groundGrad = ctx.createLinearGradient(-diag / 2, 0, diag / 2, 0);
-        groundGrad.addColorStop(0, isFlir ? '#18181b' : '#0c4a6e');
-        groundGrad.addColorStop(0.32, isFlir ? '#27272a' : '#0284c7');
-        groundGrad.addColorStop(0.35, isFlir ? '#52525b' : '#d97706');
-        groundGrad.addColorStop(0.45, groundBase);
-        groundGrad.addColorStop(1, ridgeDark);
-        ctx.fillStyle = groundGrad;
-        ctx.fillRect(-diag / 2, -diag / 2, diag, diag);
+      // Nubes avanzando suavemente
+      cloudsGroup.children.forEach((c, idx) => {
+        c.position.z += 0.18 + (effSpeed / 2500);
+        if (c.position.z > 1200) c.position.z = -1200;
+        c.position.y = 140 + (idx % 5) * 28;
+      });
 
-        // Cadenas montañosas vistas desde arriba con sombra direccional
-        const step = 52;
-        const shiftY = (scrollDist * 1.7) % step;
-        for (let y = -diag / 2 - step; y < diag / 2 + step; y += step) {
-          for (let x = -diag * 0.08; x < diag / 2; x += step) {
-            const hPeak = 18 + Math.sin((x + y) * 0.04) * 10;
-            // Cara iluminada (oeste)
-            ctx.fillStyle = ridgeLit;
-            ctx.beginPath();
-            ctx.moveTo(x, y + shiftY);
-            ctx.lineTo(x + 24, y + shiftY - hPeak);
-            ctx.lineTo(x + 24, y + shiftY + 8);
-            ctx.closePath();
-            ctx.fill();
+      // Modo FLIR infrarrojo
+      const isFlir = curCam === 'CAM4_FLIR';
+      scene.fog = new THREE.FogExp2(isFlir ? 0x18181b : 0xd99b52, isFlir ? 0.00075 : 0.00048);
+      skyDome.visible = !isFlir;
+      renderer.setClearColor(isFlir ? 0x09090b : 0xd99b52);
 
-            // Cara sombreada (este)
-            ctx.fillStyle = ridgeDark;
-            ctx.beginPath();
-            ctx.moveTo(x + 24, y + shiftY - hPeak);
-            ctx.lineTo(x + 48, y + shiftY);
-            ctx.lineTo(x + 24, y + shiftY + 8);
-            ctx.closePath();
-            ctx.fill();
+      // Posición y actitud del avión en 3D
+      const camAltitude = Math.max(4.5, 4.5 + effAlt * 0.08);
+      aircraftRig.position.set(0, camAltitude, 55 - Math.min(280, travelZ * 0.25));
+      aircraftRig.rotation.set(pitchRad, 0, -rollRad);
 
-            if (!isNorth) {
-              ctx.fillStyle = snowCap;
-              ctx.beginPath();
-              ctx.moveTo(x + 17, y + shiftY - hPeak * 0.65);
-              ctx.lineTo(x + 24, y + shiftY - hPeak);
-              ctx.lineTo(x + 31, y + shiftY - hPeak * 0.65);
-              ctx.closePath();
-              ctx.fill();
+      // Visibilidad selectiva de piezas estructurales según la cámara activa
+      noseMesh.visible = curCam === 'CAM1_PROA';
+      leftWing.visible = curCam === 'CAM5_ALA_IZQ';
+      rightWing.visible = curCam === 'CAM6_ALA_DER';
+      vTailLeft.visible = curCam === 'CAM7_VTAIL';
+      vTailRight.visible = curCam === 'CAM7_VTAIL';
+
+      // Posicionamiento de cámara onboard 360°
+      camera.fov = curCam === 'CAM2_GIMBAL' ? 28 : 62;
+      camera.updateProjectionMatrix();
+
+      const panRad = (-curPan * Math.PI) / 180;
+      const tiltRad = (curTilt * Math.PI) / 180;
+
+      if (curCam === 'CAM3_NADIR') {
+        camera.position.copy(aircraftRig.position).add(new THREE.Vector3(0, -0.5, 0));
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(-Math.PI / 2 + tiltRad * 0.4, panRad, -rollRad);
+      } else if (curCam === 'CAM5_ALA_IZQ') {
+        camera.position.copy(aircraftRig.position).add(new THREE.Vector3(-0.9, -0.1, 0.2));
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitchRad + tiltRad, panRad, -rollRad);
+      } else if (curCam === 'CAM6_ALA_DER') {
+        camera.position.copy(aircraftRig.position).add(new THREE.Vector3(0.9, -0.1, 0.2));
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitchRad + tiltRad, panRad, -rollRad);
+      } else if (curCam === 'CAM7_VTAIL') {
+        camera.position.copy(aircraftRig.position).add(new THREE.Vector3(0, 0.65, 1.4));
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitchRad + tiltRad, panRad, -rollRad);
+      } else {
+        camera.position.copy(aircraftRig.position).add(new THREE.Vector3(0, 0.15, -0.8));
+        camera.rotation.order = 'YXZ';
+        camera.rotation.set(pitchRad + tiltRad, panRad, -rollRad);
+      }
+
+      renderer.render(scene, camera);
+
+      // Dibujar HUD instrumental nítido en capa 2D superior
+      const hud = hudCanvasRef.current;
+      if (hud) {
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        if (hud.width !== Math.floor(w * dpr) || hud.height !== Math.floor(h * dpr)) {
+          hud.width = Math.floor(w * dpr);
+          hud.height = Math.floor(h * dpr);
+        }
+        const hCtx = hud.getContext('2d')!;
+        hCtx.save();
+        hCtx.scale(dpr, dpr);
+        hCtx.clearRect(0, 0, w, h);
+
+        if (!isCompact) {
+          const baseHeading = (curData?.heading ?? 180) + curPan;
+          const az = Math.round(((baseHeading % 360) + 360) % 360);
+
+          // Línea de horizonte artificial verde HUD
+          hCtx.strokeStyle = 'rgba(52, 211, 153, 0.65)';
+          hCtx.lineWidth = 1.2;
+          const horizonY = h * 0.44 + (curData?.pitch ?? 0) * 3 + curTilt * 2.5;
+          hCtx.beginPath();
+          hCtx.moveTo(0, horizonY);
+          hCtx.lineTo(w, horizonY);
+          hCtx.stroke();
+
+          // Escalera de cabeceo (Pitch Ladder)
+          hCtx.fillStyle = 'rgba(52, 211, 153, 0.85)';
+          hCtx.font = '9px monospace';
+          [-10, -5, 5, 10].forEach((deg) => {
+            const py = horizonY - deg * 5;
+            hCtx.beginPath();
+            hCtx.moveTo(w / 2 - 42, py);
+            hCtx.lineTo(w / 2 - 16, py);
+            hCtx.moveTo(w / 2 + 16, py);
+            hCtx.lineTo(w / 2 + 42, py);
+            hCtx.stroke();
+            hCtx.fillText(`${deg}`, w / 2 + 46, py + 3);
+          });
+
+          // Cinta superior de brújula 360°
+          hCtx.fillStyle = 'rgba(0, 0, 0, 0.78)';
+          hCtx.fillRect(w * 0.24, 6, w * 0.52, 22);
+          hCtx.strokeStyle = '#3f3f46';
+          hCtx.strokeRect(w * 0.24, 6, w * 0.52, 22);
+
+          hCtx.strokeStyle = '#a1a1aa';
+          hCtx.beginPath();
+          for (let tick = -60; tick <= 60; tick += 15) {
+            const tx = w / 2 + tick * 1.4;
+            if (tx > w * 0.26 && tx < w * 0.74) {
+              hCtx.moveTo(tx, 6);
+              hCtx.lineTo(tx, tick % 30 === 0 ? 12 : 9);
             }
           }
+          hCtx.stroke();
+
+          hCtx.fillStyle = '#38bdf8';
+          hCtx.font = 'bold 10px monospace';
+          hCtx.textAlign = 'center';
+          hCtx.fillText(`360° GIMBAL // AZ: ${az}° | TILT: ${Math.round(curTilt)}°`, w / 2, 23);
         }
 
-        // Malla geodésica
-        ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.16)' : 'rgba(56,189,248,0.22)';
-        ctx.lineWidth = 1;
-        for (let g = -diag / 2; g < diag / 2; g += 44) {
-          ctx.beginPath();
-          ctx.moveTo(g, -diag / 2);
-          ctx.lineTo(g, diag / 2);
-          ctx.stroke();
-          ctx.beginPath();
-          ctx.moveTo(-diag / 2, g + shiftY);
-          ctx.lineTo(diag / 2, g + shiftY);
-          ctx.stroke();
-        }
-        ctx.restore();
-      } else {
-        // 2. VISTAS EN PERSPECTIVA 2.5D CON PARALAJE Y ATMÓSFERA
-        let viewRoll = -roll;
-        const viewPitchOffset = pitch * (compact ? 1.8 : 3.8);
-        if (camId === 'CAM5_ALA_IZQ') viewRoll = (rawPitch * Math.PI) / 180 - 0.14;
-        if (camId === 'CAM6_ALA_DER') viewRoll = (-rawPitch * Math.PI) / 180 + 0.14;
-        if (camId === 'CAM7_VTAIL') viewRoll = roll * 0.85;
-
-        ctx.save();
-        ctx.translate(w / 2, h / 2 + viewPitchOffset);
-        ctx.rotate(viewRoll);
-
-        const big = Math.hypot(w, h) * 2.0;
-        const normalizedAzimuth = ((baseHeading % 360) + 360) % 360;
-
-        // Cielo atmosférico en 3 etapas
-        const skyGrad = ctx.createLinearGradient(0, -big / 2, 0, 0);
-        skyGrad.addColorStop(0, skyZenith);
-        skyGrad.addColorStop(0.65, skyMid);
-        skyGrad.addColorStop(1, skyHorizon);
-        ctx.fillStyle = skyGrad;
-        ctx.fillRect(-big / 2, -big / 2, big, big / 2);
-
-        // Disco solar / resplandor en el horizonte oeste
-        if (!isFlir && normalizedAzimuth > 170 && normalizedAzimuth < 340) {
-          const sunX = ((normalizedAzimuth - 255) / 85) * (w * 0.45);
-          const sunGlow = ctx.createRadialGradient(sunX, -8, 2, sunX, -8, compact ? 45 : 95);
-          sunGlow.addColorStop(0, 'rgba(255, 251, 235, 0.95)');
-          sunGlow.addColorStop(0.25, 'rgba(253, 224, 71, 0.45)');
-          sunGlow.addColorStop(1, 'rgba(251, 146, 60, 0)');
-          ctx.fillStyle = sunGlow;
-          ctx.fillRect(-big / 2, -big / 2, big, big / 2);
-        }
-
-        // Nubes estratificadas suaves
-        if (!isHighAlt) {
-          ctx.fillStyle = isFlir ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.12)';
-          const cloudShift = (normalizedAzimuth * 2.5) % 240;
-          for (let c = -3; c <= 3; c++) {
-            const cx = c * 240 - cloudShift;
-            const cy = -(compact ? 24 : 52) - (Math.abs(c) % 2) * 18;
-            ctx.beginPath();
-            ctx.ellipse(cx, cy, compact ? 45 : 95, compact ? 5 : 11, 0, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        }
-
-        // Capa 1 de Cordillera (Lejana - Bruma atmosférica)
-        const farCount = 16;
-        const farStep = big / farCount;
-        const farPan = (normalizedAzimuth * 2.2) % farStep;
-        for (let i = -2; i < farCount + 2; i++) {
-          const px = -big / 2 + i * farStep - farPan;
-          const ph = (compact ? 20 : 44) + Math.sin(i * 1.3) * (compact ? 8 : 18);
-          ctx.fillStyle = ridgeFar;
-          ctx.beginPath();
-          ctx.moveTo(px - farStep * 0.75, 0);
-          ctx.lineTo(px, -ph);
-          ctx.lineTo(px + farStep * 0.75, 0);
-          ctx.closePath();
-          ctx.fill();
-        }
-
-        // Capa 2 de Cordillera (Principal con sombreado 3D en dos caras y nieve)
-        const nearCount = 14;
-        const nearStep = big / nearCount;
-        const nearPan = (normalizedAzimuth * 4.2) % nearStep;
-        for (let i = -2; i < nearCount + 2; i++) {
-          const px = -big / 2 + i * nearStep - nearPan;
-          const ph = (compact ? 15 : 34) + Math.cos(i * 1.9) * (compact ? 6 : 14);
-
-          // Ladera iluminada (izquierda)
-          ctx.fillStyle = ridgeLit;
-          ctx.beginPath();
-          ctx.moveTo(px - nearStep * 0.65, 0);
-          ctx.lineTo(px, -ph);
-          ctx.lineTo(px + nearStep * 0.12, 0);
-          ctx.closePath();
-          ctx.fill();
-
-          // Ladera en sombra (derecha)
-          ctx.fillStyle = ridgeDark;
-          ctx.beginPath();
-          ctx.moveTo(px, -ph);
-          ctx.lineTo(px + nearStep * 0.65, 0);
-          ctx.lineTo(px + nearStep * 0.12, 0);
-          ctx.closePath();
-          ctx.fill();
-
-          // Casquete de nieve andina
-          if (!isNorth || ph > 26) {
-            ctx.fillStyle = snowCap;
-            ctx.beginPath();
-            ctx.moveTo(px - nearStep * 0.22, -ph * 0.58);
-            ctx.lineTo(px, -ph);
-            ctx.lineTo(px + nearStep * 0.24, -ph * 0.54);
-            ctx.lineTo(px + nearStep * 0.04, -ph * 0.62);
-            ctx.closePath();
-            ctx.fill();
-          }
-        }
-
-        // Bruma en la línea del horizonte
-        const hGlow = ctx.createLinearGradient(0, -14, 0, 14);
-        hGlow.addColorStop(0, 'rgba(0,0,0,0)');
-        hGlow.addColorStop(0.5, hazeColor);
-        hGlow.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = hGlow;
-        ctx.fillRect(-big / 2, -14, big, 28);
-
-        // Terreno en perspectiva con textura de profundidad
-        const groundGrad = ctx.createLinearGradient(0, 0, 0, big / 2);
-        groundGrad.addColorStop(0, groundHighlight);
-        groundGrad.addColorStop(0.35, groundBase);
-        groundGrad.addColorStop(1, groundShadow);
-        ctx.fillStyle = groundGrad;
-        ctx.fillRect(-big / 2, 0, big, big / 2);
-
-        // Océano Pacífico con reflejo solar y oleaje
-        if (normalizedAzimuth > 155 && normalizedAzimuth < 355) {
-          const seaGrad = ctx.createLinearGradient(0, 0, 0, big * 0.15);
-          seaGrad.addColorStop(0, isFlir ? '#18181b' : '#0369a1');
-          seaGrad.addColorStop(1, isFlir ? '#27272a' : '#0c4a6e');
-          ctx.fillStyle = seaGrad;
-          ctx.fillRect(-big / 2, 0, big * 0.58, big * 0.14);
-
-          // Destellos de olas en el mar
-          ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.12)' : 'rgba(186, 230, 253, 0.35)';
-          ctx.lineWidth = 1;
-          for (let wv = 1; wv <= 5; wv++) {
-            const wy = wv * (compact ? 3 : 6);
-            const wxOffset = Math.sin(wavePhase + wv) * 14;
-            ctx.beginPath();
-            ctx.moveTo(-big * 0.4 + wxOffset, wy);
-            ctx.lineTo(-big * 0.05 + wxOffset, wy);
-            ctx.stroke();
-          }
-        }
-
-        // Pista de Arica iluminada en despegue/aterrizaje (altitud < 160m)
-        if ((data?.alt ?? 0) < 160 && (camId === 'CAM1_PROA' || camId === 'CAM2_GIMBAL')) {
-          ctx.fillStyle = '#09090b';
-          ctx.beginPath();
-          ctx.moveTo(-22, 2);
-          ctx.lineTo(22, 2);
-          ctx.lineTo(125, big / 2);
-          ctx.lineTo(-125, big / 2);
-          ctx.closePath();
-          ctx.fill();
-
-          // Luces de borde de pista
-          ctx.strokeStyle = '#38bdf8';
-          ctx.lineWidth = 1.5;
-          ctx.beginPath();
-          ctx.moveTo(-20, 2);
-          ctx.lineTo(-118, big / 2);
-          ctx.moveTo(20, 2);
-          ctx.lineTo(118, big / 2);
-          ctx.stroke();
-
-          // Eje central luminoso
-          ctx.strokeStyle = '#facc15';
-          ctx.setLineDash([14, 10]);
-          ctx.lineWidth = 2.2;
-          ctx.beginPath();
-          ctx.moveTo(0, 6);
-          ctx.lineTo(0, big / 2);
-          ctx.stroke();
-          ctx.setLineDash([]);
-        } else {
-          // Líneas dinámicas de flujo de terreno según velocidad
-          ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.09)';
-          ctx.lineWidth = 1;
-          for (let r = 1; r <= 7; r++) {
-            const yPos = Math.pow(((r * 30 + scrollDist * 2.5) % 210) / 210, 1.9) * (big * 0.45);
-            ctx.beginPath();
-            ctx.moveTo(-big / 2, yPos);
-            ctx.lineTo(big / 2, yPos);
-            ctx.stroke();
-          }
-        }
-
-        // Escalera de cabeceo (Pitch Ladder) en modo completo
-        if (!compact && (camId === 'CAM1_PROA' || camId === 'CAM2_GIMBAL')) {
-          ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
-          ctx.fillStyle = 'rgba(52, 211, 153, 0.8)';
-          ctx.font = '9px monospace';
-          ctx.lineWidth = 1;
-          [-10, -5, 5, 10].forEach((deg) => {
-            const py = -deg * 4.5;
-            ctx.beginPath();
-            ctx.moveTo(-45, py);
-            ctx.lineTo(-18, py);
-            ctx.moveTo(18, py);
-            ctx.lineTo(45, py);
-            ctx.stroke();
-            ctx.fillText(`${deg}`, 49, py + 3);
-          });
-        }
-
-        // Línea de horizonte artificial
-        ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.85)' : 'rgba(52, 211, 153, 0.85)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(-big / 2, 0);
-        ctx.lineTo(big / 2, 0);
-        ctx.stroke();
-
-        ctx.restore();
+        hCtx.restore();
       }
 
-      // 3. ESTRUCTURAS COMPUESTAS ANCLADAS AL FUSELAJE CON SOMBREADO METÁLICO 3D
-      const strokeAccent = aircraft.accentColor;
-      const aileronDeflection = (data?.roll ?? 0) * 0.45;
-
-      if (camId === 'CAM1_PROA') {
-        const noseGrad = ctx.createLinearGradient(0, h - 22, 0, h + 14);
-        noseGrad.addColorStop(0, '#27272a');
-        noseGrad.addColorStop(1, '#09090b');
-        ctx.fillStyle = noseGrad;
-        ctx.strokeStyle = strokeAccent;
-        ctx.lineWidth = 1.4;
-        ctx.beginPath();
-        ctx.ellipse(w / 2, h + 14, w * 0.2, 25, 0, Math.PI, 0);
-        ctx.fill();
-        ctx.stroke();
-      } else if (camId === 'CAM5_ALA_IZQ') {
-        const wingGrad = ctx.createLinearGradient(0, h, w * 0.9, h * 0.35);
-        wingGrad.addColorStop(0, '#09090b');
-        wingGrad.addColorStop(0.5, '#27272a');
-        wingGrad.addColorStop(1, '#18181b');
-        ctx.fillStyle = wingGrad;
-        ctx.strokeStyle = strokeAccent;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(0, h);
-        ctx.lineTo(w * 0.87, h * 0.33);
-        ctx.lineTo(w * 0.94, h * 0.41);
-        ctx.lineTo(w * 0.26, h);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Alerón móvil articulado
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.moveTo(w * 0.42, h * 0.84);
-        ctx.lineTo(w * 0.82, h * 0.47 + aileronDeflection);
-        ctx.stroke();
-
-        // Luz de navegación babor (Roja)
-        ctx.fillStyle = '#ef4444';
-        ctx.beginPath();
-        ctx.arc(w * 0.9, h * 0.36, compact ? 2.5 : 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (camId === 'CAM6_ALA_DER') {
-        const wingGrad = ctx.createLinearGradient(w, h, w * 0.1, h * 0.35);
-        wingGrad.addColorStop(0, '#09090b');
-        wingGrad.addColorStop(0.5, '#27272a');
-        wingGrad.addColorStop(1, '#18181b');
-        ctx.fillStyle = wingGrad;
-        ctx.strokeStyle = strokeAccent;
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.moveTo(w, h);
-        ctx.lineTo(w * 0.13, h * 0.33);
-        ctx.lineTo(w * 0.06, h * 0.41);
-        ctx.lineTo(w * 0.74, h);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Alerón móvil articulado
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.moveTo(w * 0.58, h * 0.84);
-        ctx.lineTo(w * 0.18, h * 0.47 - aileronDeflection);
-        ctx.stroke();
-
-        // Luz de navegación estribor (Verde)
-        ctx.fillStyle = '#22c55e';
-        ctx.beginPath();
-        ctx.arc(w * 0.1, h * 0.36, compact ? 2.5 : 4, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (camId === 'CAM7_VTAIL') {
-        const tailGrad = ctx.createLinearGradient(w * 0.5, h, w * 0.5, h * 0.25);
-        tailGrad.addColorStop(0, '#09090b');
-        tailGrad.addColorStop(1, '#27272a');
-        ctx.fillStyle = tailGrad;
-        ctx.strokeStyle = strokeAccent;
-        ctx.lineWidth = 1.5;
-        const cantOut = aircraft.id === 'SR_71' ? -12 : 20;
-
-        // Deriva izquierda anclada al lomo
-        ctx.beginPath();
-        ctx.moveTo(w * 0.43, h);
-        ctx.lineTo(w * 0.31 - cantOut, h * 0.24);
-        ctx.lineTo(w * 0.38 - cantOut, h * 0.24);
-        ctx.lineTo(w * 0.49, h);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Deriva derecha anclada al lomo
-        ctx.beginPath();
-        ctx.moveTo(w * 0.57, h);
-        ctx.lineTo(w * 0.69 + cantOut, h * 0.24);
-        ctx.lineTo(w * 0.62 + cantOut, h * 0.24);
-        ctx.lineTo(w * 0.51, h);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        // Lomo dorsal central
-        ctx.fillStyle = '#18181b';
-        ctx.beginPath();
-        ctx.ellipse(w * 0.5, h, w * 0.12, 22, 0, Math.PI, 0);
-        ctx.fill();
-        ctx.stroke();
-
-        // Postquemadores supersónicos
-        if (aircraft.id !== 'H2_VALKYRIE' && effSpeed > 300) {
-          const flameGlow = ctx.createRadialGradient(w * 0.5, h * 0.9, 2, w * 0.5, h * 0.9, compact ? 18 : 34);
-          flameGlow.addColorStop(0, aircraft.id === 'SR_71' ? 'rgba(251, 191, 36, 0.9)' : 'rgba(56, 189, 248, 0.9)');
-          flameGlow.addColorStop(1, 'rgba(0,0,0,0)');
-          ctx.fillStyle = flameGlow;
-          ctx.fillRect(w * 0.35, h * 0.78, w * 0.3, h * 0.22);
-        }
-      }
-
-      // 4. CINTA GRADUADA DE RUMBO AZIMUTAL 360° SUPERIOR
-      if (!compact) {
-        const az = Math.round(((baseHeading % 360) + 360) % 360);
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.78)';
-        ctx.fillRect(w * 0.24, 6, w * 0.52, 22);
-        ctx.strokeStyle = '#27272a';
-        ctx.strokeRect(w * 0.24, 6, w * 0.52, 22);
-
-        // Marcas graduadas dinámicas
-        ctx.strokeStyle = '#71717a';
-        ctx.beginPath();
-        for (let tick = -60; tick <= 60; tick += 15) {
-          const tx = w / 2 + tick * 1.4;
-          if (tx > w * 0.26 && tx < w * 0.74) {
-            ctx.moveTo(tx, 6);
-            ctx.lineTo(tx, tick % 30 === 0 ? 12 : 9);
-          }
-        }
-        ctx.stroke();
-
-        ctx.fillStyle = '#38bdf8';
-        ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center';
-        ctx.fillText(`360° GIMBAL // AZ: ${az}° | TILT: ${Math.round(tiltOffset)}°`, w / 2, 23);
-      }
-
-      ctx.restore();
-      animId = requestAnimationFrame(render);
+      animId = requestAnimationFrame(animate);
     };
 
-    animId = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(animId);
-  }, [camId, aircraft, data, gearDown, panOffset, tiltOffset, compact]);
+    animId = requestAnimationFrame(animate);
 
-  return <canvas ref={canvasRef} className="w-full h-full block" />;
+    return () => {
+      cancelAnimationFrame(animId);
+      renderer.dispose();
+      if (renderer.domElement.parentNode === container) {
+        container.removeChild(renderer.domElement);
+      }
+    };
+  }, [camId]);
+
+  return (
+    <div className="relative w-full h-full">
+      <div ref={containerRef} className="w-full h-full" />
+      <canvas ref={hudCanvasRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+    </div>
+  );
 }
 
 export default function App() {
@@ -942,11 +904,10 @@ export default function App() {
           isDraggingCam.current = false;
         }}
       >
-        <TerrainCanvas
+        <FlightSim3DViewport
           camId={camId}
           aircraft={aircraft}
           data={data}
-          gearDown={gearDown}
           panOffset={compact ? camMeta.basePan : camPan}
           tiltOffset={compact ? 0 : camTilt}
           compact={compact}
@@ -955,7 +916,7 @@ export default function App() {
         {/* Retícula táctica central */}
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           {camId === 'CAM2_GIMBAL' || camId === 'CAM4_FLIR' ? (
-            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-cyan-400/75 relative flex items-center justify-center`}>
+            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-cyan-400/80 relative flex items-center justify-center`}>
               <div className="w-2 h-2 bg-red-500 rounded-full shadow-[0_0_8px_#ef4444]" />
               <div className="absolute -top-2.5 left-1/2 w-0.5 h-2.5 bg-cyan-400" />
               <div className="absolute -bottom-2.5 left-1/2 w-0.5 h-2.5 bg-cyan-400" />
@@ -963,7 +924,7 @@ export default function App() {
               <div className="absolute -right-2.5 top-1/2 w-2.5 h-0.5 bg-cyan-400" />
             </div>
           ) : (
-            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-emerald-400/50 rounded-full flex items-center justify-center`}>
+            <div className={`${compact ? 'w-12 h-12' : 'w-32 h-32'} border border-emerald-400/55 rounded-full flex items-center justify-center`}>
               <div className="w-3 h-3 border-2 border-amber-400 rounded-full shadow-[0_0_8px_#fbbf24]" />
             </div>
           )}
@@ -1080,7 +1041,7 @@ export default function App() {
       </header>
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3 bg-black">
-        {/* COLUMNA IZQUIERDA (ANTES POSICIÓN DE CÁMARAS): MAPA TÁCTICO HD + CONTROLES + PROPULSIÓN */}
+        {/* COLUMNA IZQUIERDA: MAPA TÁCTICO HD + CONTROLES + PROPULSIÓN */}
         <div className="lg:col-span-4 flex flex-col gap-3">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col">
             <div className="px-3 py-2 bg-black border-b border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
@@ -1125,7 +1086,6 @@ export default function App() {
 
             <div ref={mapContainerRef} className="w-full h-64 z-10" />
 
-            {/* Plan de Vuelo compacto */}
             <div className="p-2.5 bg-black border-t border-zinc-800 max-h-36 overflow-y-auto">
               <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1">Plan de Vuelo ({aircraft.name} • Clic mapa = Waypoint)</div>
               <div className="space-y-1">
@@ -1153,7 +1113,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* CONTROLES MANUALES DE VUELO */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3">
             <div className="flex justify-between items-center mb-2">
               <span className="text-[11px] font-semibold text-zinc-400">CONTROLES MANUALES (W/A/S/D + Q/E)</span>
@@ -1171,7 +1130,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* PROPULSIÓN */}
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-3 space-y-2.5">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold flex items-center gap-1.5" style={{ color: aircraft.accentColor }}>
@@ -1203,12 +1161,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* COLUMNA CENTRAL (EN EL MEDIO DE LA PÁGINA): SIMULADOR ÓPTICO 360° DE 7 CÁMARAS + BOTONERA DE DESPEGUE */}
+        {/* COLUMNA CENTRAL: SIMULADOR 3D FLIGHT SIMULATOR (7 CÁMARAS 360°) + BOTONERA */}
         <div className="lg:col-span-5 flex flex-col gap-3">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col flex-1">
             <div className="px-3 py-2 bg-black border-b border-zinc-800 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-                <Camera className="w-4 h-4" /> SIMULADOR ÓPTICO 360° (7 CÁMARAS ONBOARD)
+                <Camera className="w-4 h-4" /> SIMULADOR ÓPTICO 3D 360° (7 CÁMARAS)
               </div>
               <div className="flex items-center gap-1.5">
                 <button
@@ -1239,7 +1197,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Selector rápido de las 7 cámaras */}
             <div className="px-2 py-1.5 bg-black border-b border-zinc-800 grid grid-cols-4 gap-1">
               {CAMERAS.map((c) => (
                 <button
@@ -1266,8 +1223,7 @@ export default function App() {
               </button>
             </div>
 
-            {/* Visor Óptico Central Ampliado */}
-            <div className="relative flex-1 min-h-[340px] bg-black">
+            <div className="relative flex-1 min-h-[360px] bg-black">
               {activeCam === 'MULTI_7' ? (
                 <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1.5 p-1.5 bg-black">
                   {CAMERAS.map((c) => (
@@ -1290,7 +1246,6 @@ export default function App() {
               )}
             </div>
 
-            {/* BOTONERA COMPLETA DE PROCESO DE DESPEGUE, PRE-FLIGHT CHECK Y TREN DE ATERRIZAJE */}
             <div className="p-3 bg-black border-t border-zinc-800 space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-cyan-400 tracking-wide">PROCEDIMIENTO DE DESPEGUE Y TREN DE ATERRIZAJE</span>
@@ -1377,7 +1332,7 @@ export default function App() {
               <span className="text-[9px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded">SIN AUTORIDAD</span>
             </div>
             <p className="text-xs text-zinc-300 bg-black p-2.5 rounded-lg border border-zinc-800">
-              {data?.ai_recommendation || `Perfil aerodinámico activo: ${aircraft.name} (${aircraft.cruiseMach}). Cobertura esférica 360° operativa sobre cordillera.`}
+              {data?.ai_recommendation || `Motor 3D activo para ${aircraft.name} (${aircraft.cruiseMach}). Cobertura esférica 360° operativa.`}
             </p>
           </div>
 
