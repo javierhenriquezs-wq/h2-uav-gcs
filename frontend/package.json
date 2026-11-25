@@ -10,10 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@types/leaflet": "^1.9.22",
+    "@types/leaflet": "^1.9.23",
     "@types/three": "^0.187.0",
+    "cesium": "^1.147.0",
     "leaflet": "^1.9.4",
-    "lucide-react": "^1.78.0",
+    "lucide-react": "^1.80.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "^0.187.0"
@@ -29,6 +30,7 @@
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
     "typescript": "~7.0.2",
-    "vite": "^8.3.6"
+    "vite": "^8.3.6",
+    "vite-plugin-cesium": "^1.2.23"
   }
 }
