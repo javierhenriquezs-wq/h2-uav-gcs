@@ -55,7 +55,6 @@ export default function App() {
   const [recording, setRecording] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
-  // Referencias del mapa Leaflet
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const planeMarkerRef = useRef<L.Marker | null>(null);
@@ -69,9 +68,8 @@ export default function App() {
     }
   };
 
-  // Conexión WebSocket con reconexión automática
   useEffect(() => {
-    let timer: any;
+    let timer: ReturnType<typeof setTimeout>;
     const connect = () => {
       const ws = new WebSocket(WS_URL);
       wsRef.current = ws;
@@ -89,7 +87,6 @@ export default function App() {
     };
   }, []);
 
-  // Controles de teclado en Modo Manual / Asistido
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (!data || !['MANUAL', 'ASSISTED'].includes(data.mode)) return;
@@ -104,7 +101,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [data?.mode]);
 
-  // Inicializar Mapa Táctico de Chile
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
     const map = L.map(mapContainerRef.current, {
@@ -117,7 +113,6 @@ export default function App() {
       attribution: '&copy; OpenStreetMap &copy; CARTO',
     }).addTo(map);
 
-    // Geofence nacional visual
     L.rectangle([[-56.0, -76.0], [-17.5, -66.5]], {
       color: '#ef4444',
       weight: 1,
@@ -125,7 +120,6 @@ export default function App() {
       fillOpacity: 0.02,
     }).addTo(map);
 
-    // Clic en el mapa para añadir Waypoint en vuelo
     map.on('click', (e: L.LeafletMouseEvent) => {
       sendCmd({
         action: 'ADD_WAYPOINT',
@@ -142,7 +136,6 @@ export default function App() {
     mapRef.current = map;
   }, []);
 
-  // Actualizar posición del UAV y rutas en el mapa
   useEffect(() => {
     if (!data || !mapRef.current) return;
 
@@ -196,7 +189,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#060b14] text-slate-200 flex flex-col">
-      {/* BARRA SUPERIOR DE AUTORIDAD Y CONTROL CRÍTICO */}
       <header className="bg-slate-900/90 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 sticky top-0 z-50">
         <div className="flex items-center gap-3">
           <div className="w-9 h-9 rounded-lg bg-cyan-500/10 border border-cyan-500/40 flex items-center justify-center">
@@ -213,7 +205,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* INDICADOR DE AUTORIDAD EN TIEMPO REAL */}
         <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
           <span className="text-[11px] text-slate-400 uppercase">Autoridad:</span>
           <span className={`text-xs font-bold px-2 py-0.5 rounded ${
@@ -225,7 +216,6 @@ export default function App() {
           </span>
         </div>
 
-        {/* BOTÓN PROMINENTE DE INTERVENCIÓN HUMANA (MANUAL <-> AUTÓNOMO) */}
         <div className="flex items-center gap-2">
           {data?.mode === 'STANDBY' ? (
             <button
@@ -269,12 +259,8 @@ export default function App() {
         </div>
       </header>
 
-      {/* CUERPO PRINCIPAL DE LA ESTACIÓN DE CONTROL */}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3">
-        
-        {/* COLUMNA IZQUIERDA (4 cols): CÁMARA CON HUD + HORIZONTE ARTIFICIAL + CONTROLES */}
         <div className="lg:col-span-4 flex flex-col gap-3">
-          {/* SISTEMA MULTICÁMARA CON OSD SUPERPUESTO */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
             <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
@@ -299,9 +285,7 @@ export default function App() {
               </div>
             </div>
 
-            {/* VENTANA DE CÁMARA + HORIZONTE ARTIFICIAL */}
             <div className="relative h-64 bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950/60 overflow-hidden select-none">
-              {/* Horizonte Artificial Dinámico */}
               <div
                 className="absolute inset-0 flex items-center justify-center transition-transform duration-150"
                 style={{
@@ -311,14 +295,12 @@ export default function App() {
                 <div className="w-[150%] h-0.5 bg-emerald-400/70 shadow-[0_0_8px_#34d399]" />
               </div>
 
-              {/* Retícula Central Aeronáutica */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-28 h-28 border border-emerald-500/30 rounded-full flex items-center justify-center">
                   <div className="w-3 h-3 border-2 border-amber-400 rounded-full" />
                 </div>
               </div>
 
-              {/* Superposición OSD (On-Screen Display) */}
               <div className="absolute top-2 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5">
                 <div>SPD: {data?.speed ?? 0} KM/H</div>
                 <div>ALT: {data?.alt ?? 0} M</div>
@@ -335,7 +317,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* PANEL DE PILOTAGE MANUAL (ACTIVO EN MODO MANUAL/ASISTIDO) */}
             <div className="p-3 bg-slate-950/70 border-t border-slate-800">
               <div className="flex justify-between items-center mb-2">
                 <span className="text-[11px] font-semibold text-slate-400">CONTROLES DE VUELO (Teclas W/A/S/D + Q/E)</span>
@@ -354,7 +335,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* TELEMETRÍA PROPULSIÓN HIDRÓGENO (CELDA PEM + BATERÍA HÍBRIDA) */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
@@ -390,7 +370,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* COLUMNA CENTRAL (5 cols): MAPA TÁCTICO EN TIEMPO REAL + PLAN DE VUELO */}
         <div className="lg:col-span-5 flex flex-col gap-3">
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden flex flex-col flex-1 min-h-[420px]">
             <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
@@ -420,7 +399,6 @@ export default function App() {
 
             <div ref={mapContainerRef} className="w-full flex-1 min-h-[340px] z-10" />
 
-            {/* LISTA DE WAYPOINTS MODIFICABLE EN VUELO */}
             <div className="p-2.5 bg-slate-950 border-t border-slate-800 max-h-40 overflow-y-auto">
               <div className="text-[10px] font-semibold text-slate-400 uppercase mb-1.5">Plan de Vuelo Activo (Validado por Safety Guardian)</div>
               <div className="space-y-1">
@@ -450,9 +428,7 @@ export default function App() {
           </div>
         </div>
 
-        {/* COLUMNA DERECHA (3 cols): ASISTENTE IA + INYECTOR DE FALLOS + CAJA NEGRA */}
         <div className="lg:col-span-3 flex flex-col gap-3">
-          {/* MÓDULO DE INTELIGENCIA ARTIFICIAL (SUPERVISADO) */}
           <div className="bg-slate-900/80 border border-indigo-500/30 rounded-xl p-3 space-y-2">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-bold text-indigo-400 flex items-center gap-1.5">
@@ -465,7 +441,6 @@ export default function App() {
             </p>
           </div>
 
-          {/* SIMULADOR DE ESCENARIOS Y FALLOS CRÍTICOS */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 space-y-2">
             <h2 className="text-xs font-bold text-amber-400 flex items-center gap-1.5">
               <Sliders className="w-4 h-4" /> PRUEBAS DE SEGURIDAD Y FALLOS
@@ -498,7 +473,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* ALERTAS Y CAJA NEGRA (REGISTRO DE AUDITORÍA) */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 flex-1 flex flex-col">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
