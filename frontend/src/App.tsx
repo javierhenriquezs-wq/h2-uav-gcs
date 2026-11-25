@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ShieldAlert, Flame, Navigation,
-  Play, Pause, RotateCcw, AlertTriangle, Camera, Download, Cpu,
-  Hand, Plane, Sliders, Grid, CheckCircle2, Power, ArrowUpCircle, ArrowDownCircle,
+  RotateCcw, AlertTriangle, Camera, Download, Cpu,
+  Hand, Plane, Grid, CheckCircle2, Power, ArrowUpCircle, ArrowDownCircle,
   Layers, Compass, LayoutGrid, GripVertical, Maximize2, Minimize2, PlaneLanding, PlaneTakeoff
 } from 'lucide-react';
 import L from 'leaflet';
@@ -53,6 +53,7 @@ interface Telemetry {
 type AircraftId = 'H2_VALKYRIE' | 'SR_71' | 'F_35' | 'F_22';
 type MapLayerId = 'SATELLITE' | 'TOPO' | 'DARK';
 type CameraId =
+  | 'CAM8_EXTERNA'
   | 'CAM1_PROA'
   | 'CAM2_GIMBAL'
   | 'CAM3_NADIR'
@@ -60,31 +61,69 @@ type CameraId =
   | 'CAM5_ALA_IZQ'
   | 'CAM6_ALA_DER'
   | 'CAM7_VTAIL'
-  | 'CAM8_EXTERNA'
   | 'MULTI_7';
 
 type FlightPhase = 'PARKED' | 'TAKEOFF_ROLL' | 'CLIMB' | 'CRUISE' | 'APPROACH' | 'LANDING_FLARE' | 'LANDED';
 type PanelId = 'CAMERAS' | 'MAP' | 'FLIGHT_OPS' | 'PROPULSION' | 'AI_SAFETY' | 'BLACKBOX';
+type BiomeType = 'ATACAMA_DESERT' | 'NORTE_CHICO' | 'CENTRAL_VALLEY' | 'SOUTHERN_LAKES' | 'PATAGONIA_FJORDS';
+
+interface ChileRegionInfo {
+  code: string;
+  name: string;
+  capital: string;
+  latMin: number;
+  latMax: number;
+  biome: BiomeType;
+  groundHex: number;
+  groundCss: string;
+  ridgeHex: number;
+  fogHex: number;
+  hasCoastSea: boolean;
+  hasSnowPeaks: boolean;
+}
+
+const CHILE_REGIONS: ChileRegionInfo[] = [
+  { code: 'XV', name: 'Región de Arica y Parinacota', capital: 'Arica', latMin: -19.2, latMax: -17.4, biome: 'ATACAMA_DESERT', groundHex: 0x9c5a34, groundCss: '#9c5a34', ridgeHex: 0x6b3a1e, fogHex: 0xe09f5a, hasCoastSea: true, hasSnowPeaks: false },
+  { code: 'I', name: 'Región de Tarapacá', capital: 'Iquique', latMin: -21.6, latMax: -19.2, biome: 'ATACAMA_DESERT', groundHex: 0xa66338, groundCss: '#a66338', ridgeHex: 0x733e20, fogHex: 0xe3a45f, hasCoastSea: true, hasSnowPeaks: false },
+  { code: 'II', name: 'Región de Antofagasta', capital: 'Antofagasta', latMin: -26.1, latMax: -21.6, biome: 'ATACAMA_DESERT', groundHex: 0xb06a3b, groundCss: '#b06a3b', ridgeHex: 0x7c4322, fogHex: 0xe6a866, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'III', name: 'Región de Atacama', capital: 'Copiapó', latMin: -29.3, latMax: -26.1, biome: 'NORTE_CHICO', groundHex: 0x8f5b38, groundCss: '#8f5b38', ridgeHex: 0x5c3a24, fogHex: 0xd99b66, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'IV', name: 'Región de Coquimbo', capital: 'La Serena', latMin: -32.2, latMax: -29.3, biome: 'NORTE_CHICO', groundHex: 0x755c38, groundCss: '#755c38', ridgeHex: 0x4d3d26, fogHex: 0xcbd5e1, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'V', name: 'Región de Valparaíso', capital: 'Valparaíso', latMin: -33.2, latMax: -32.2, biome: 'CENTRAL_VALLEY', groundHex: 0x4d6336, groundCss: '#4d6336', ridgeHex: 0x3b4730, fogHex: 0x93c5fd, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'RM', name: 'Región Metropolitana de Santiago', capital: 'Santiago', latMin: -34.3, latMax: -33.2, biome: 'CENTRAL_VALLEY', groundHex: 0x455e32, groundCss: '#455e32', ridgeHex: 0x364232, fogHex: 0x93c5fd, hasCoastSea: false, hasSnowPeaks: true },
+  { code: 'VI', name: "Región de O'Higgins", capital: 'Rancagua', latMin: -35.0, latMax: -34.3, biome: 'CENTRAL_VALLEY', groundHex: 0x3f5e2e, groundCss: '#3f5e2e', ridgeHex: 0x2f422b, fogHex: 0x93c5fd, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'VII', name: 'Región del Maule', capital: 'Talca', latMin: -36.5, latMax: -35.0, biome: 'CENTRAL_VALLEY', groundHex: 0x38592b, groundCss: '#38592b', ridgeHex: 0x2b3d28, fogHex: 0x93c5fd, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'XVI', name: 'Región de Ñuble', capital: 'Chillán', latMin: -37.2, latMax: -36.5, biome: 'CENTRAL_VALLEY', groundHex: 0x315429, groundCss: '#315429', ridgeHex: 0x253b26, fogHex: 0x93c5fd, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'VIII', name: 'Región del Biobío', capital: 'Concepción', latMin: -38.5, latMax: -37.2, biome: 'SOUTHERN_LAKES', groundHex: 0x284d27, groundCss: '#284d27', ridgeHex: 0x1e3824, fogHex: 0x94a3b8, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'IX', name: 'Región de La Araucanía', capital: 'Temuco', latMin: -39.6, latMax: -38.5, biome: 'SOUTHERN_LAKES', groundHex: 0x214726, groundCss: '#214726', ridgeHex: 0x193322, fogHex: 0x94a3b8, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'XIV', name: 'Región de Los Ríos', capital: 'Valdivia', latMin: -40.7, latMax: -39.6, biome: 'SOUTHERN_LAKES', groundHex: 0x1c4226, groundCss: '#1c4226', ridgeHex: 0x152e21, fogHex: 0x94a3b8, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'X', name: 'Región de Los Lagos', capital: 'Puerto Montt', latMin: -44.0, latMax: -40.7, biome: 'SOUTHERN_LAKES', groundHex: 0x183b26, groundCss: '#183b26', ridgeHex: 0x132b22, fogHex: 0x7dd3fc, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'XI', name: 'Región de Aysén', capital: 'Coyhaique', latMin: -49.2, latMax: -44.0, biome: 'PATAGONIA_FJORDS', groundHex: 0x1e3a34, groundCss: '#1e3a34', ridgeHex: 0x334155, fogHex: 0x64748b, hasCoastSea: true, hasSnowPeaks: true },
+  { code: 'XII', name: 'Región de Magallanes y Antártica', capital: 'Punta Arenas', latMin: -56.5, latMax: -49.2, biome: 'PATAGONIA_FJORDS', groundHex: 0x263b3a, groundCss: '#263b3a', ridgeHex: 0x475569, fogHex: 0x64748b, hasCoastSea: true, hasSnowPeaks: true },
+];
+
+function getRegionByLat(lat: number): ChileRegionInfo {
+  return CHILE_REGIONS.find((r) => lat <= r.latMax && lat >= r.latMin) || CHILE_REGIONS[0];
+}
 
 interface AirportSpec {
   icao: string;
   name: string;
   city: string;
+  regionCode: string;
   lat: number;
   lon: number;
   rwyHeading: number;
   rwyLabel: string;
-  region: 'NORTH' | 'CENTRAL' | 'SOUTH';
 }
 
 const CHILE_AIRPORTS: AirportSpec[] = [
-  { icao: 'SCAR', name: 'Chacalluta Intl', city: 'Arica', lat: -18.3485, lon: -70.3387, rwyHeading: 20, rwyLabel: 'RWY 02/20', region: 'NORTH' },
-  { icao: 'SCDA', name: 'Diego Aracena', city: 'Iquique', lat: -20.5352, lon: -70.1813, rwyHeading: 190, rwyLabel: 'RWY 19/01', region: 'NORTH' },
-  { icao: 'SCFA', name: 'Andrés Sabella', city: 'Antofagasta', lat: -23.4445, lon: -70.4451, rwyHeading: 190, rwyLabel: 'RWY 19/01', region: 'NORTH' },
-  { icao: 'SCEL', name: 'Arturo Merino Benítez', city: 'Santiago', lat: -33.3930, lon: -70.7858, rwyHeading: 170, rwyLabel: 'RWY 17L/35R', region: 'CENTRAL' },
-  { icao: 'SCIE', name: 'Carriel Sur', city: 'Concepción', lat: -36.7727, lon: -73.0631, rwyHeading: 20, rwyLabel: 'RWY 02/20', region: 'CENTRAL' },
-  { icao: 'SCTE', name: 'El Tepual', city: 'Puerto Montt', lat: -41.4389, lon: -73.0940, rwyHeading: 170, rwyLabel: 'RWY 17/35', region: 'SOUTH' },
-  { icao: 'SCCI', name: 'Carlos Ibáñez del Campo', city: 'Punta Arenas', lat: -53.0026, lon: -70.8546, rwyHeading: 250, rwyLabel: 'RWY 25/07', region: 'SOUTH' },
+  { icao: 'SCAR', name: 'Chacalluta Intl', city: 'Arica', regionCode: 'XV', lat: -18.3485, lon: -70.3387, rwyHeading: 20, rwyLabel: 'RWY 02/20' },
+  { icao: 'SCDA', name: 'Diego Aracena', city: 'Iquique', regionCode: 'I', lat: -20.5352, lon: -70.1813, rwyHeading: 190, rwyLabel: 'RWY 19/01' },
+  { icao: 'SCFA', name: 'Andrés Sabella', city: 'Antofagasta', regionCode: 'II', lat: -23.4445, lon: -70.4451, rwyHeading: 190, rwyLabel: 'RWY 19/01' },
+  { icao: 'SCEL', name: 'Arturo Merino Benítez', city: 'Santiago', regionCode: 'RM', lat: -33.3930, lon: -70.7858, rwyHeading: 170, rwyLabel: 'RWY 17L/35R' },
+  { icao: 'SCIE', name: 'Carriel Sur', city: 'Concepción', regionCode: 'VIII', lat: -36.7727, lon: -73.0631, rwyHeading: 20, rwyLabel: 'RWY 02/20' },
+  { icao: 'SCTE', name: 'El Tepual', city: 'Puerto Montt', regionCode: 'X', lat: -41.4389, lon: -73.0940, rwyHeading: 170, rwyLabel: 'RWY 17/35' },
+  { icao: 'SCCI', name: 'Carlos Ibáñez del Campo', city: 'Punta Arenas', regionCode: 'XII', lat: -53.0026, lon: -70.8546, rwyHeading: 250, rwyLabel: 'RWY 25/07' },
 ];
 
 interface AircraftSpec {
@@ -120,7 +159,7 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     propulsionLabel: 'PROPULSIÓN HIDRÓGENO (PEM 700 BAR)',
     fuelLabel: 'PRESIÓN TANQUE H2',
     accentColor: '#0ea5e9',
-    bodyColor: 0x1e293b,
+    bodyColor: 0xe2e8f0,
     svgPath: 'M12 2L15 10L22 14L14 15L13 21L12 19L11 21L10 15L2 14L9 10L12 2Z',
   },
   SR_71: {
@@ -198,14 +237,14 @@ const MAP_LAYERS: Record<MapLayerId, { label: string; url: string; attribution: 
 };
 
 const CAMERAS: { id: CameraId; short: string; label: string; sensor: string; basePan: number }[] = [
-  { id: 'CAM1_PROA', short: '1. PROA', label: 'CAM 01 // PROA 360° HUD', sensor: '4K 360° WIDE', basePan: 0 },
-  { id: 'CAM2_GIMBAL', short: '2. GIMBAL', label: 'CAM 02 // TORRETA EO 360°', sensor: '30X OPT 360°', basePan: 0 },
-  { id: 'CAM3_NADIR', short: '3. NADIR', label: 'CAM 03 // CENITAL NADIR 360°', sensor: 'ORTOFOTO LIVE', basePan: 0 },
-  { id: 'CAM4_FLIR', short: '4. FLIR', label: 'CAM 04 // TÉRMICA LWIR 360°', sensor: 'FLIR 360° IR', basePan: 0 },
-  { id: 'CAM5_ALA_IZQ', short: '5. ALA IZQ', label: 'CAM 05 // ENCASTRE ALA BABOR 360°', sensor: 'WING-L 360°', basePan: -75 },
-  { id: 'CAM6_ALA_DER', short: '6. ALA DER', label: 'CAM 06 // ENCASTRE ALA ESTRIBOR 360°', sensor: 'WING-R 360°', basePan: 75 },
-  { id: 'CAM7_VTAIL', short: '7. COLA', label: 'CAM 07 // EMPENAJE DORSAL 360°', sensor: 'TAIL-CAM 360°', basePan: 180 },
-  { id: 'CAM8_EXTERNA', short: '8. EXTERNA', label: 'CAM 08 // INSPECCIÓN 3D ORBITAL', sensor: '3D MODEL VIEW', basePan: 35 },
+  { id: 'CAM8_EXTERNA', short: '1. PERSECUCIÓN', label: 'CAM 01 // VISTA EXTERNA MSFS 360°', sensor: 'CHASE CAM 360°', basePan: 18 },
+  { id: 'CAM1_PROA', short: '2. PROA HUD', label: 'CAM 02 // PROA 360° HUD', sensor: '4K 360° WIDE', basePan: 0 },
+  { id: 'CAM2_GIMBAL', short: '3. GIMBAL EO', label: 'CAM 03 // TORRETA EO 360°', sensor: '30X OPT 360°', basePan: 0 },
+  { id: 'CAM3_NADIR', short: '4. NADIR', label: 'CAM 04 // CENITAL NADIR 360°', sensor: 'ORTOFOTO LIVE', basePan: 0 },
+  { id: 'CAM4_FLIR', short: '5. FLIR IR', label: 'CAM 05 // TÉRMICA LWIR 360°', sensor: 'FLIR 360° IR', basePan: 0 },
+  { id: 'CAM5_ALA_IZQ', short: '6. ALA IZQ', label: 'CAM 06 // ENCASTRE ALA BABOR 360°', sensor: 'WING-L 360°', basePan: -75 },
+  { id: 'CAM6_ALA_DER', short: '7. ALA DER', label: 'CAM 07 // ENCASTRE ALA ESTRIBOR 360°', sensor: 'WING-R 360°', basePan: 75 },
+  { id: 'CAM7_VTAIL', short: '8. COLA V', label: 'CAM 08 // EMPENAJE DORSAL 360°', sensor: 'TAIL-CAM 360°', basePan: 180 },
 ];
 
 const DEFAULT_PANEL_ORDER: PanelId[] = ['MAP', 'CAMERAS', 'AI_SAFETY', 'FLIGHT_OPS', 'PROPULSION', 'BLACKBOX'];
@@ -218,78 +257,83 @@ const DEFAULT_PANEL_SPANS: Record<PanelId, 1 | 2> = {
   BLACKBOX: 1,
 };
 
-// Construye un modelo 3D articulado detallado para cada aeronave (H2-Valkyrie, SR-71, F-35, F-22)
 function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE.Group {
   const root = new THREE.Group();
 
   const hullMat = new THREE.MeshStandardMaterial({
     color: spec.bodyColor,
-    roughness: spec.id === 'SR_71' ? 0.42 : 0.28,
-    metalness: 0.82,
+    roughness: spec.id === 'SR_71' ? 0.4 : 0.25,
+    metalness: 0.78,
   });
-  const trimMat = new THREE.MeshStandardMaterial({
+  const stripeMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(spec.accentColor),
     roughness: 0.3,
-    metalness: 0.6,
+    metalness: 0.5,
   });
   const canopyMat = new THREE.MeshStandardMaterial({
-    color: 0xf59e0b,
-    emissive: 0x78350f,
-    emissiveIntensity: 0.35,
-    roughness: 0.12,
+    color: 0x0f172a,
+    emissive: 0x1e293b,
+    emissiveIntensity: 0.3,
+    roughness: 0.1,
     metalness: 0.95,
   });
 
   if (spec.id === 'H2_VALKYRIE') {
-    // Fuselaje central aerodinámico
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.32, 7.6, 20), hullMat);
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.32, 7.8, 24), hullMat);
     fuselage.rotation.x = Math.PI / 2;
     root.add(fuselage);
 
-    // Nariz sensor EO/IR
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.45, 20, 16), hullMat);
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.34, 4.2, 24), stripeMat);
+    stripe.rotation.x = Math.PI / 2;
+    stripe.position.set(0, 0.02, 0.2);
+    root.add(stripe);
+
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 16), hullMat);
     nose.scale.set(1, 0.85, 2.2);
-    nose.position.set(0, -0.04, -4.0);
+    nose.position.set(0, -0.04, -4.1);
     root.add(nose);
 
-    // Tanques dorsales de hidrógeno líquido/comprimido
-    const tankL = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 3.6, 16), trimMat);
-    tankL.rotation.x = Math.PI / 2;
-    tankL.position.set(-0.26, 0.32, 0.2);
-    const tankR = tankL.clone();
-    tankR.position.x = 0.26;
-    root.add(tankL, tankR);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 14), canopyMat);
+    canopy.scale.set(0.95, 0.72, 2.3);
+    canopy.position.set(0, 0.34, -1.9);
+    root.add(canopy);
 
-    // Alas invertidas hacia adelante (Forward-swept wings)
-    const wingL = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.1, 1.15), hullMat);
-    wingL.position.set(-3.4, 0.05, -0.35);
-    wingL.rotation.y = -0.24;
-    const wingR = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.1, 1.15), hullMat);
-    wingR.position.set(3.4, 0.05, -0.35);
-    wingR.rotation.y = 0.24;
-    root.add(wingL, wingR);
+    // Alas invertidas con winglets
+    const wingL = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.15), hullMat);
+    wingL.position.set(-3.6, 0.06, -0.35);
+    wingL.rotation.y = -0.22;
+    const wingletL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.75), stripeMat);
+    wingletL.position.set(-7.1, 0.45, -1.1);
+    wingletL.rotation.z = 0.25;
 
-    // Doble estabilizador en V (V-Tail)
-    const vL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.9, 0.95), hullMat);
-    vL.position.set(-0.75, 0.72, 3.2);
+    const wingR = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.15), hullMat);
+    wingR.position.set(3.6, 0.06, -0.35);
+    wingR.rotation.y = 0.22;
+    const wingletR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.75), stripeMat);
+    wingletR.position.set(7.1, 0.45, -1.1);
+    wingletR.rotation.z = -0.25;
+    root.add(wingL, wingletL, wingR, wingletR);
+
+    // Doble V-Tail
+    const vL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.95, 0.95), hullMat);
+    vL.position.set(-0.78, 0.75, 3.3);
     vL.rotation.z = 0.52;
-    const vR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.9, 0.95), hullMat);
-    vR.position.set(0.75, 0.72, 3.2);
+    const vR = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.95, 0.95), hullMat);
+    vR.position.set(0.78, 0.75, 3.3);
     vR.rotation.z = -0.52;
     root.add(vL, vR);
   } else if (spec.id === 'SR_71') {
-    // Fuselaje largo en titanio negro con quillas laterales (Chines)
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.42, 11.2, 20), hullMat);
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.42, 11.4, 20), hullMat);
     fuselage.rotation.x = Math.PI / 2;
     root.add(fuselage);
 
-    const chine = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.08, 9.8), hullMat);
+    const chine = new THREE.Mesh(new THREE.BoxGeometry(2.35, 0.08, 9.8), hullMat);
     chine.position.set(0, 0, -0.4);
     root.add(chine);
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.46, 2.8, 20), hullMat);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.46, 2.9, 20), hullMat);
     nose.rotation.x = -Math.PI / 2;
-    nose.position.set(0, 0, -6.9);
+    nose.position.set(0, 0, -7.0);
     root.add(nose);
 
     const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 12), canopyMat);
@@ -297,7 +341,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     canopy.position.set(0, 0.36, -3.5);
     root.add(canopy);
 
-    // Alas delta + Góndolas motores J58 + Conos de choque
     const deltaWing = new THREE.Mesh(new THREE.ConeGeometry(4.6, 7.2, 3), hullMat);
     deltaWing.rotation.x = -Math.PI / 2;
     deltaWing.scale.set(1.25, 1, 0.04);
@@ -308,18 +351,16 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
       const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.44, 5.4, 20), hullMat);
       nacelle.rotation.x = Math.PI / 2;
       nacelle.position.set(nx, 0.05, 1.2);
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.2, 16), trimMat);
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.2, 16), stripeMat);
       spike.rotation.x = -Math.PI / 2;
       spike.position.set(nx, 0.05, -2.0);
 
-      // Derivas inclinadas hacia adentro (Inward-canted rudders)
       const fin = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.85, 1.4), hullMat);
       fin.position.set(nx * 0.92, 0.98, 2.3);
       fin.rotation.z = nx < 0 ? -0.26 : 0.26;
       root.add(nacelle, spike, fin);
     });
   } else {
-    // F-35A Lightning II & F-22 Raptor (Caza furtivo 5ª Generación)
     const isF22 = spec.id === 'F_22';
     const fuselage = new THREE.Mesh(new THREE.BoxGeometry(isF22 ? 1.85 : 1.55, 0.68, 8.2), hullMat);
     root.add(fuselage);
@@ -336,7 +377,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     canopy.position.set(0, 0.45, -2.2);
     root.add(canopy);
 
-    // Alas trapezoidales furtivas
     const wingSpan = isF22 ? 5.6 : 4.8;
     const wingL = new THREE.Mesh(new THREE.BoxGeometry(wingSpan, 0.1, 2.4), hullMat);
     wingL.position.set(-wingSpan / 2 - 0.5, 0.04, 0.4);
@@ -346,7 +386,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     wingR.rotation.y = -0.36;
     root.add(wingL, wingR);
 
-    // Doble deriva inclinada hacia afuera (Canted vertical stabilizers)
     [-0.95, 0.95].forEach((fx) => {
       const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.8, 1.3), hullMat);
       fin.position.set(fx, 0.85, 3.0);
@@ -355,14 +394,12 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     });
   }
 
-  // Luces de navegación en puntas de ala (Roja babor / Verde estribor)
-  const navRed = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
-  navRed.position.set(-4.8, 0.05, 0.2);
-  const navGreen = new THREE.Mesh(new THREE.SphereGeometry(0.12, 8, 8), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
-  navGreen.position.set(4.8, 0.05, 0.2);
+  const navRed = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+  navRed.position.set(-5.2, 0.08, 0.1);
+  const navGreen = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+  navGreen.position.set(5.2, 0.08, 0.1);
   root.add(navRed, navGreen);
 
-  // Tren de aterrizaje triciclo retráctil
   if (gearDown) {
     const strutMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.9, roughness: 0.2 });
     const tireMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.9 });
@@ -393,7 +430,7 @@ function createRunwayTexture(rwyLabel: string): THREE.CanvasTexture {
   ctx.fillStyle = '#18181b';
   ctx.fillRect(0, 0, 512, 2048);
 
-  for (let i = 0; i < 16000; i++) {
+  for (let i = 0; i < 14000; i++) {
     ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.22)';
     ctx.fillRect(Math.random() * 512, Math.random() * 2048, 2, 2);
   }
@@ -419,7 +456,6 @@ function createRunwayTexture(rwyLabel: string): THREE.CanvasTexture {
     ctx.fillRect(x, 180, 24, 130);
   }
 
-  // Designador numérico de pista
   ctx.save();
   ctx.fillStyle = '#f4f4f5';
   ctx.font = 'bold 46px monospace';
@@ -431,8 +467,8 @@ function createRunwayTexture(rwyLabel: string): THREE.CanvasTexture {
   ctx.fillRect(150, 1320, 75, 320);
   ctx.fillRect(287, 1320, 75, 320);
 
-  ctx.fillStyle = '#f4f4f5';
   for (let y = 340; y < 1560; y += 90) {
+    ctx.fillStyle = '#f4f4f5';
     ctx.fillRect(250, y, 12, 52);
   }
 
@@ -441,44 +477,338 @@ function createRunwayTexture(rwyLabel: string): THREE.CanvasTexture {
   return tex;
 }
 
-function createTerrainTexture(region: 'NORTH' | 'CENTRAL' | 'SOUTH', isFlir: boolean): THREE.CanvasTexture {
+function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 512;
   const ctx = canvas.getContext('2d')!;
 
-  ctx.fillStyle = isFlir ? '#27272a' : region === 'NORTH' ? '#8c5332' : region === 'SOUTH' ? '#1e3a2f' : '#4d5d36';
+  ctx.fillStyle = isFlir ? '#27272a' : region.groundCss;
   ctx.fillRect(0, 0, 512, 512);
 
-  for (let i = 0; i < 6000; i++) {
+  for (let i = 0; i < 6500; i++) {
     const x = Math.random() * 512;
     const y = Math.random() * 512;
     const r = 2 + Math.random() * 14;
     if (isFlir) {
       ctx.fillStyle = Math.random() > 0.5 ? 'rgba(220,220,225,0.06)' : 'rgba(10,10,12,0.12)';
-    } else if (region === 'NORTH') {
-      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(180,115,65,0.12)' : 'rgba(65,32,14,0.14)';
-    } else if (region === 'SOUTH') {
-      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(34,85,60,0.14)' : 'rgba(15,35,28,0.16)';
+    } else if (region.biome === 'ATACAMA_DESERT') {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(217,119,6,0.12)' : 'rgba(69,26,3,0.14)';
+    } else if (region.biome === 'PATAGONIA_FJORDS') {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(14,116,144,0.16)' : 'rgba(15,23,42,0.18)';
+    } else if (region.biome === 'SOUTHERN_LAKES') {
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(21,128,61,0.14)' : 'rgba(6,78,59,0.16)';
     } else {
-      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(110,125,70,0.13)' : 'rgba(40,52,25,0.15)';
+      ctx.fillStyle = Math.random() > 0.45 ? 'rgba(101,163,13,0.13)' : 'rgba(54,83,20,0.15)';
     }
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
 
+  // Lagos / Fiordos / Salares según la región de Chile
+  if (region.biome === 'PATAGONIA_FJORDS' || region.biome === 'SOUTHERN_LAKES') {
+    ctx.fillStyle = isFlir ? '#18181b' : '#0c4a6e';
+    for (let l = 0; l < 6; l++) {
+      ctx.beginPath();
+      ctx.ellipse(Math.random() * 512, Math.random() * 512, 48 + Math.random() * 60, 18 + Math.random() * 24, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(16, 16);
+  tex.repeat.set(18, 18);
   return tex;
 }
 
-// Visor 3D Flight Simulator con simulación de despegue/aterrizaje en pista y modelo 3D completo
+// Dibuja los instrumentos estilo Microsoft Flight Simulator en las 4 esquinas del visor
+function drawMsfsInstruments(
+  ctx: CanvasRenderingContext2D,
+  w: number,
+  h: number,
+  params: {
+    heading: number;
+    course: number;
+    speedKt: number;
+    altFt: number;
+    vsFpm: number;
+    throttlePct: number;
+    fuelPct: number;
+    aoaDeg: number;
+    gearDown: boolean;
+    pitchDeg: number;
+  }
+) {
+  const { heading, course, speedKt, altFt, vsFpm, throttlePct, fuelPct, aoaDeg, gearDown, pitchDeg } = params;
+
+  // 1. SUPERIOR IZQUIERDA: BRÚJULA CIRCULAR GIRATORIA (HSI / COMPASS ROSE)
+  const cx = 66;
+  const cy = 68;
+  const r = 46;
+
+  ctx.save();
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.72)';
+  ctx.beginPath();
+  ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Caja digital HDG superior
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
+  ctx.fillRect(cx - 24, cy - r - 18, 48, 16);
+  ctx.strokeStyle = '#38bdf8';
+  ctx.strokeRect(cx - 24, cy - r - 18, 48, 16);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 11px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${Math.round(heading)}°`, cx, cy - r - 6);
+
+  // Etiquetas HDG y CRS
+  ctx.font = 'bold 8px monospace';
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText(`HDG ${Math.round(heading)}°`, cx - 44, cy - r - 6);
+  ctx.fillStyle = '#e879f9';
+  ctx.fillText(`CRS ${Math.round(course)}°`, cx + 44, cy - r - 6);
+
+  // Disco giratorio con rumbos
+  ctx.translate(cx, cy);
+  ctx.rotate((-heading * Math.PI) / 180);
+
+  for (let deg = 0; deg < 360; deg += 10) {
+    const rad = (deg * Math.PI) / 180;
+    const isMajor = deg % 30 === 0;
+    const inner = isMajor ? r - 9 : r - 5;
+    ctx.strokeStyle = deg === 0 ? '#ef4444' : 'rgba(255,255,255,0.75)';
+    ctx.lineWidth = isMajor ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.moveTo(Math.sin(rad) * inner, -Math.cos(rad) * inner);
+    ctx.lineTo(Math.sin(rad) * r, -Math.cos(rad) * r);
+    ctx.stroke();
+
+    if (isMajor) {
+      ctx.save();
+      ctx.translate(Math.sin(rad) * (r - 17), -Math.cos(rad) * (r - 17));
+      ctx.rotate(rad);
+      ctx.fillStyle = deg === 0 ? '#f87171' : '#f8fafc';
+      ctx.font = 'bold 9px sans-serif';
+      const label = deg === 0 ? 'N' : deg === 90 ? 'E' : deg === 180 ? 'S' : deg === 270 ? 'W' : `${deg / 10}`;
+      ctx.fillText(label, 0, 3);
+      ctx.restore();
+    }
+  }
+
+  // Aguja de curso magenta
+  const crsRad = (course * Math.PI) / 180;
+  ctx.rotate(crsRad);
+  ctx.strokeStyle = '#e879f9';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(0, -r + 6);
+  ctx.lineTo(0, r - 6);
+  ctx.stroke();
+  ctx.restore();
+
+  // Avión central fijo en brújula
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 1.8;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - 8);
+  ctx.lineTo(cx, cy + 8);
+  ctx.moveTo(cx - 8, cy);
+  ctx.lineTo(cx + 8, cy);
+  ctx.stroke();
+
+  // 2. INFERIOR IZQUIERDA: CINTA AIRSPEED + ENGINE % + FUEL + AOA
+  const blX = 12;
+  const blY = h - 122;
+
+  // Cinta vertical de Airspeed (Nudos KT)
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(blX, blY, 54, 110);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(blX, blY, 54, 110);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('AIRSPEED', blX + 27, blY + 10);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(blX, blY + 14, 54, 82);
+  ctx.clip();
+
+  const baseSpd = Math.floor(speedKt / 10) * 10;
+  for (let s = baseSpd - 30; s <= baseSpd + 30; s += 10) {
+    if (s < 0) continue;
+    const yOffset = blY + 55 - (s - speedKt) * 1.4;
+    ctx.strokeStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.moveTo(blX + 42, yOffset);
+    ctx.lineTo(blX + 54, yOffset);
+    ctx.stroke();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 10px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${s}`, blX + 39, yOffset + 3);
+  }
+  ctx.restore();
+
+  // Ventana central negra de velocidad actual
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(blX + 2, blY + 45, 46, 20);
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeRect(blX + 2, blY + 45, 46, 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 12px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${Math.round(speedKt)}`, blX + 25, blY + 59);
+
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '8px monospace';
+  ctx.fillText(`KT`, blX + 27, blY + 105);
+
+  // Reloj circular ENGINE %
+  const engX = blX + 60;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(engX, blY + 18, 66, 92);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(engX, blY + 18, 66, 92);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('ENGINE', engX + 33, blY + 29);
+
+  const dialCx = engX + 33;
+  const dialCy = blY + 62;
+  ctx.strokeStyle = '#22c55e';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.arc(dialCx, dialCy, 22, Math.PI * 0.75, Math.PI * 0.75 + (Math.PI * 1.5 * Math.min(100, throttlePct)) / 100);
+  ctx.stroke();
+
+  const needleAng = Math.PI * 0.75 + (Math.PI * 1.5 * Math.min(100, throttlePct)) / 100;
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(dialCx, dialCy);
+  ctx.lineTo(dialCx + Math.cos(needleAng) * 20, dialCy + Math.sin(needleAng) * 20);
+  ctx.stroke();
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`${Math.round(throttlePct)}%`, dialCx, blY + 102);
+
+  // Barra vertical FUEL
+  const fuelX = engX + 70;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(fuelX, blY + 18, 34, 92);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(fuelX, blY + 18, 34, 92);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('FUEL', fuelX + 17, blY + 29);
+
+  const barH = 54;
+  const fillH = (barH * Math.max(0, Math.min(100, fuelPct))) / 100;
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(fuelX + 12, blY + 35, 10, barH);
+  ctx.fillStyle = fuelPct > 25 ? '#22c55e' : '#ef4444';
+  ctx.fillRect(fuelX + 12, blY + 35 + (barH - fillH), 10, fillH);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 9px monospace';
+  ctx.fillText(`${Math.round(fuelPct)}%`, fuelX + 17, blY + 102);
+
+  // Barra AOA
+  const aoaX = fuelX + 38;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(aoaX, blY + 18, 32, 92);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(aoaX, blY + 18, 32, 92);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('AOA', aoaX + 16, blY + 29);
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`${aoaDeg.toFixed(1)}°`, aoaX + 16, blY + 68);
+
+  // 3. INFERIOR DERECHA: FLAPS / GEAR + ALTITUDE + VS
+  const brX = w - 144;
+  const brY = h - 122;
+
+  // Caja FLAPS / GEAR
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(brX, brY + 18, 52, 92);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(brX, brY + 18, 52, 92);
+  ctx.fillStyle = '#e2e8f0';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('GEAR/FLP', brX + 26, brY + 29);
+
+  ctx.fillStyle = gearDown ? '#f59e0b' : '#22c55e';
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(gearDown ? 'DN' : 'UP', brX + 26, brY + 55);
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillText(gearDown ? 'FLP 15°' : 'FLP 0°', brX + 26, brY + 82);
+
+  // Cinta vertical ALTITUDE (Pies FT) + VS
+  const altX = brX + 56;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+  ctx.fillRect(altX, brY, 76, 110);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeRect(altX, brY, 76, 110);
+
+  ctx.fillStyle = '#38bdf8';
+  ctx.font = 'bold 8px sans-serif';
+  ctx.fillText('ALTITUDE', altX + 28, brY + 10);
+  ctx.fillText('VS', altX + 64, brY + 10);
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(altX, brY + 14, 54, 82);
+  ctx.clip();
+
+  const baseAlt = Math.floor(altFt / 100) * 100;
+  for (let a = baseAlt - 300; a <= baseAlt + 300; a += 100) {
+    if (a < 0) continue;
+    const yOffset = brY + 55 - (a - altFt) * 0.14;
+    ctx.strokeStyle = '#94a3b8';
+    ctx.beginPath();
+    ctx.moveTo(altX, yOffset);
+    ctx.lineTo(altX + 8, yOffset);
+    ctx.stroke();
+    ctx.fillStyle = '#e2e8f0';
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${a}`, altX + 11, yOffset + 3);
+  }
+  ctx.restore();
+
+  // Ventana negra de altitud actual
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(altX + 4, brY + 45, 50, 20);
+  ctx.strokeStyle = '#ffffff';
+  ctx.strokeRect(altX + 4, brY + 45, 50, 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.font = 'bold 10px monospace';
+  ctx.textAlign = 'center';
+  ctx.fillText(`${Math.round(altFt)}`, altX + 29, brY + 59);
+
+  // Columna VS (Variómetro)
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '8px monospace';
+  ctx.fillText(`${Math.round(vsFpm)}`, altX + 64, brY + 58);
+  ctx.fillText('29.92 IN', altX + 38, brY + 105);
+}
+
+// Visor 3D Flight Simulator con cambio dinámico por cada Región de Chile
 function FlightSim3DViewport({
   camId,
   aircraft,
+  region,
   airport,
   flightPhase,
   simAltM,
@@ -494,6 +824,7 @@ function FlightSim3DViewport({
 }: {
   camId: CameraId;
   aircraft: AircraftSpec;
+  region: ChileRegionInfo;
   airport: AirportSpec;
   flightPhase: FlightPhase;
   simAltM: number;
@@ -512,6 +843,7 @@ function FlightSim3DViewport({
   const stateRef = useRef({
     camId,
     aircraft,
+    region,
     airport,
     flightPhase,
     simAltM,
@@ -528,6 +860,7 @@ function FlightSim3DViewport({
   stateRef.current = {
     camId,
     aircraft,
+    region,
     airport,
     flightPhase,
     simAltM,
@@ -547,11 +880,10 @@ function FlightSim3DViewport({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    const fogColor = airport.region === 'SOUTH' ? 0x64748b : airport.region === 'CENTRAL' ? 0x93c5fd : 0xd99b52;
-    scene.fog = new THREE.FogExp2(fogColor, 0.00048);
+    scene.fog = new THREE.FogExp2(region.fogHex, 0.00044);
 
     const camera = new THREE.PerspectiveCamera(
-      camId === 'CAM2_GIMBAL' ? 30 : 62,
+      camId === 'CAM2_GIMBAL' ? 30 : 60,
       (container.clientWidth || 640) / (container.clientHeight || 400),
       0.2,
       3800
@@ -561,26 +893,27 @@ function FlightSim3DViewport({
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth || 640, container.clientHeight || 400);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.15;
+    renderer.toneMappingExposure = 1.18;
     container.appendChild(renderer.domElement);
 
-    const hemiLight = new THREE.HemisphereLight(0xfff3d6, 0x334155, 0.95);
+    const hemiLight = new THREE.HemisphereLight(0xfff3d6, 0x1e293b, 0.95);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffdf9e, 2.3);
-    sunLight.position.set(-450, 320, -850);
+    const sunLight = new THREE.DirectionalLight(0xffcf87, 2.4);
+    sunLight.position.set(-550, 240, -900);
     scene.add(sunLight);
 
-    // Cúpula celeste
+    // Cúpula celeste atardecer dorado estilo MSFS
     const skyGeo = new THREE.SphereGeometry(2800, 32, 20);
     const skyCanvas = document.createElement('canvas');
     skyCanvas.width = 32;
     skyCanvas.height = 256;
     const sCtx = skyCanvas.getContext('2d')!;
     const sGrad = sCtx.createLinearGradient(0, 0, 0, 256);
-    sGrad.addColorStop(0.0, '#041229');
-    sGrad.addColorStop(0.38, airport.region === 'SOUTH' ? '#334155' : '#1d4ed8');
-    sGrad.addColorStop(0.49, airport.region === 'NORTH' ? '#f6c270' : '#bae6fd');
+    sGrad.addColorStop(0.0, '#091936');
+    sGrad.addColorStop(0.32, '#2d4f80');
+    sGrad.addColorStop(0.46, '#f59e0b');
+    sGrad.addColorStop(0.51, '#fef08a');
     sGrad.addColorStop(1.0, '#1e293b');
     sCtx.fillStyle = sGrad;
     sCtx.fillRect(0, 0, 32, 256);
@@ -590,61 +923,75 @@ function FlightSim3DViewport({
     );
     scene.add(skyDome);
 
-    // Nubes volumétricas
+    // Disco solar en el horizonte oeste
+    const sunDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(68, 24),
+      new THREE.MeshBasicMaterial({ color: 0xfef9c3, fog: false })
+    );
+    sunDisc.position.set(-620, 95, -2100);
+    sunDisc.lookAt(0, 0, 0);
+    scene.add(sunDisc);
+
+    // Nubes iluminadas por el atardecer
     const cloudsGroup = new THREE.Group();
     const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
+      color: 0xffedd5,
+      emissive: 0xc2410c,
+      emissiveIntensity: 0.25,
       roughness: 0.95,
       transparent: true,
-      opacity: 0.72,
+      opacity: 0.78,
     });
     const puffGeo = new THREE.DodecahedronGeometry(1, 1);
-    for (let i = 0; i < 36; i++) {
+    for (let i = 0; i < 42; i++) {
       const cluster = new THREE.Group();
       for (let p = 0; p < 4; p++) {
         const mesh = new THREE.Mesh(puffGeo, cloudMat);
-        mesh.scale.set(28 + Math.random() * 32, 9 + Math.random() * 9, 22 + Math.random() * 26);
-        mesh.position.set((p - 1.5) * 24, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 18);
+        mesh.scale.set(32 + Math.random() * 38, 8 + Math.random() * 9, 24 + Math.random() * 28);
+        mesh.position.set((p - 1.5) * 26, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 20);
         cluster.add(mesh);
       }
-      cluster.position.set((Math.random() - 0.5) * 2400, 160 + Math.random() * 140, (Math.random() - 0.5) * 2400);
+      cluster.position.set((Math.random() - 0.5) * 2400, 175 + Math.random() * 145, (Math.random() - 0.5) * 2400);
       cloudsGroup.add(cluster);
     }
     scene.add(cloudsGroup);
 
-    // Malla de terreno 3D con valle aeroportuario y cordillera
+    // Terreno 3D regional: Costa del Pacífico a la izquierda, valle central, Cordillera de los Andes a la derecha/fondo
     const terrainGeo = new THREE.PlaneGeometry(3400, 3400, 130, 130);
     terrainGeo.rotateX(-Math.PI / 2);
     const posAttr = terrainGeo.attributes.position;
     const colors: number[] = [];
+    const baseCol = new THREE.Color(region.groundHex);
+    const ridgeCol = new THREE.Color(region.ridgeHex);
 
     for (let i = 0; i < posAttr.count; i++) {
       const x = posAttr.getX(i);
       const z = posAttr.getZ(i);
       const corridorMask = THREE.MathUtils.smoothstep(Math.abs(x), 75, 260);
+
+      // Si la región tiene costa, hacia el oeste (x < -380) desciende al Océano Pacífico
+      const isSea = region.hasCoastSea && x < -420;
       const ridgeNoise =
         Math.sin(x * 0.012) * Math.cos(z * 0.012) * 34 +
         Math.sin(x * 0.032 + z * 0.025) * 14;
-      const andesBack = z < -620 ? Math.pow((-z - 620) / 1050, 1.55) * 270 : 0;
-      const andesPeaks =
-        z < -620
-          ? (Math.abs(Math.sin(x * 0.0085)) * 135 + Math.cos(x * 0.022) * 45) *
-            THREE.MathUtils.smoothstep(-z, 620, 1020)
-          : 0;
 
-      const height = Math.max(0, corridorMask * (Math.max(0, ridgeNoise) + 12)) + andesBack + andesPeaks;
+      const andesBack = z < -620 || x > 550 ? Math.pow(Math.max(0, (-z - 620) / 1050, (x - 550) / 1100), 1.5) * 260 : 0;
+      const andesPeaks =
+        andesBack > 10 ? Math.abs(Math.sin(x * 0.0085 + z * 0.006)) * 120 : 0;
+
+      const height = isSea
+        ? -4
+        : Math.max(0, corridorMask * (Math.max(0, ridgeNoise) + 12)) + andesBack + andesPeaks;
       posAttr.setY(i, height);
 
-      if (height > 230) {
-        colors.push(0.95, 0.96, 0.98);
-      } else if (height > 125) {
-        colors.push(0.42, 0.36, 0.34);
-      } else if (airport.region === 'SOUTH') {
-        colors.push(0.14, 0.32, 0.24);
-      } else if (airport.region === 'CENTRAL') {
-        colors.push(0.32, 0.42, 0.22);
+      if (isSea) {
+        colors.push(0.05, 0.22, 0.38);
+      } else if (region.hasSnowPeaks && height > 210) {
+        colors.push(0.95, 0.96, 0.99);
+      } else if (height > 90) {
+        colors.push(ridgeCol.r, ridgeCol.g, ridgeCol.b);
       } else {
-        colors.push(0.74, 0.45, 0.26);
+        colors.push(baseCol.r, baseCol.g, baseCol.b);
       }
     }
     terrainGeo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
@@ -653,14 +1000,14 @@ function FlightSim3DViewport({
     const terrainMesh = new THREE.Mesh(
       terrainGeo,
       new THREE.MeshStandardMaterial({
-        map: createTerrainTexture(airport.region, camId === 'CAM4_FLIR'),
+        map: createRegionalTerrainTexture(region, camId === 'CAM4_FLIR'),
         vertexColors: true,
-        roughness: 0.92,
+        roughness: 0.9,
       })
     );
     scene.add(terrainMesh);
 
-    // Pista de aterrizaje 3D + Torre de control + Hangares + Luces PAPI
+    // Pista de aterrizaje 3D + Torre de control + Luces PAPI
     const runwayGroup = new THREE.Group();
     const runwayMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(42, 820),
@@ -669,24 +1016,6 @@ function FlightSim3DViewport({
     runwayMesh.rotation.x = -Math.PI / 2;
     runwayMesh.position.set(0, 0.25, -260);
     runwayGroup.add(runwayMesh);
-
-    const taxiMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(16, 680),
-      new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.85 })
-    );
-    taxiMesh.rotation.x = -Math.PI / 2;
-    taxiMesh.position.set(58, 0.22, -250);
-    runwayGroup.add(taxiMesh);
-
-    // Torre de control y terminal del aeropuerto
-    const towerBase = new THREE.Mesh(new THREE.BoxGeometry(10, 24, 10), new THREE.MeshStandardMaterial({ color: 0xe4e4e7 }));
-    towerBase.position.set(86, 12, -140);
-    const towerCab = new THREE.Mesh(
-      new THREE.CylinderGeometry(8, 6, 6, 12),
-      new THREE.MeshStandardMaterial({ color: 0x0ea5e9, emissive: 0x0284c7, emissiveIntensity: 0.4 })
-    );
-    towerCab.position.set(86, 26, -140);
-    runwayGroup.add(towerBase, towerCab);
 
     const edgeLightGeo = new THREE.SphereGeometry(0.7, 8, 8);
     const whiteLightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
@@ -712,15 +1041,13 @@ function FlightSim3DViewport({
     });
     scene.add(runwayGroup);
 
-    // Modelo 3D del avión seleccionado
-    let aircraftModel = buildDetailedAircraftMesh(aircraft, gearDown);
+    const aircraftModel = buildDetailedAircraftMesh(aircraft, gearDown);
     scene.add(aircraftModel);
 
-    // Llama de postquemador / propulsión trasera
     const afterburnerMat = new THREE.MeshBasicMaterial({
       color: aircraft.id === 'H2_VALKYRIE' ? 0x38bdf8 : aircraft.id === 'SR_71' ? 0xf59e0b : 0x60a5fa,
       transparent: true,
-      opacity: 0.8,
+      opacity: 0.82,
     });
     const afterburner = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.8, 16), afterburnerMat);
     afterburner.rotation.x = Math.PI / 2;
@@ -743,20 +1070,18 @@ function FlightSim3DViewport({
       const rollRad = (st.simRollDeg * Math.PI) / 180;
       const pitchRad = (st.simPitchDeg * Math.PI) / 180;
 
-      // Posición de pista vs vuelo en crucero
       const nearAirport = st.simAltM < 450;
       runwayGroup.visible = nearAirport;
 
       if (nearAirport) {
         terrainMesh.position.z = 0;
-        // Posición a lo largo de la pista (135m inicio umbral -> -450m fin de pista)
         const zOnRunway = 135 - st.runwayProgress * 580;
         const yHeight = 1.15 + st.simAltM * 0.22;
         aircraftModel.position.set(0, yHeight, zOnRunway);
       } else {
-        cruiseScroll += (st.simSpeedKmh / 3600) * 22;
+        cruiseScroll += (st.simSpeedKmh / 3600) * 24;
         terrainMesh.position.z = cruiseScroll % 200;
-        aircraftModel.position.set(0, 100 + Math.min(240, st.simAltM * 0.025), 0);
+        aircraftModel.position.set(0, 105 + Math.min(240, st.simAltM * 0.025), 0);
       }
 
       aircraftModel.rotation.set(pitchRad, 0, -rollRad);
@@ -764,30 +1089,30 @@ function FlightSim3DViewport({
       afterburner.scale.setScalar(0.7 + Math.min(1.4, st.simSpeedKmh / 1200) + Math.random() * 0.12);
 
       cloudsGroup.children.forEach((c) => {
-        c.position.z += 0.22;
+        c.position.z += 0.25;
         if (c.position.z > 1200) c.position.z = -1200;
       });
 
       const isFlir = st.camId === 'CAM4_FLIR';
-      scene.fog = new THREE.FogExp2(isFlir ? 0x18181b : fogColor, isFlir ? 0.00075 : 0.00045);
+      scene.fog = new THREE.FogExp2(isFlir ? 0x18181b : st.region.fogHex, isFlir ? 0.00075 : 0.00044);
       skyDome.visible = !isFlir;
-      renderer.setClearColor(isFlir ? 0x09090b : fogColor);
+      sunDisc.visible = !isFlir;
+      renderer.setClearColor(isFlir ? 0x09090b : st.region.fogHex);
 
-      camera.fov = st.camId === 'CAM2_GIMBAL' ? 28 : 62;
+      camera.fov = st.camId === 'CAM2_GIMBAL' ? 28 : 60;
       camera.updateProjectionMatrix();
 
       const panRad = (-st.panOffset * Math.PI) / 180;
       const tiltRad = (st.tiltOffset * Math.PI) / 180;
 
       if (st.camId === 'CAM8_EXTERNA') {
-        // Cámara orbital 3D externa para observar el modelo completo del avión despegar y aterrizar
         aircraftModel.visible = true;
-        const dist = st.aircraft.id === 'SR_71' ? 16 : 13;
+        const dist = st.aircraft.id === 'SR_71' ? 15.5 : 12.5;
         const camX = aircraftModel.position.x + Math.sin(panRad) * Math.cos(tiltRad) * dist;
-        const camY = aircraftModel.position.y + 2.4 + Math.sin(tiltRad) * dist;
+        const camY = aircraftModel.position.y + 2.1 + Math.sin(tiltRad) * dist;
         const camZ = aircraftModel.position.z + Math.cos(panRad) * Math.cos(tiltRad) * dist;
         camera.position.set(camX, Math.max(1.2, camY), camZ);
-        camera.lookAt(aircraftModel.position);
+        camera.lookAt(aircraftModel.position.clone().add(new THREE.Vector3(0, 0.3, -1.5)));
       } else if (st.camId === 'CAM3_NADIR') {
         aircraftModel.visible = false;
         camera.position.copy(aircraftModel.position).add(new THREE.Vector3(0, -0.3, 0));
@@ -817,7 +1142,7 @@ function FlightSim3DViewport({
 
       renderer.render(scene, camera);
 
-      // HUD Instrumental
+      // Dibujar instrumentos MSFS en las 4 esquinas
       const hud = hudCanvasRef.current;
       if (hud) {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -831,25 +1156,18 @@ function FlightSim3DViewport({
         hCtx.clearRect(0, 0, w, h);
 
         if (!st.compact) {
-          const az = Math.round(((st.simHeadingDeg + st.panOffset) % 360 + 360) % 360);
-          if (st.camId !== 'CAM8_EXTERNA') {
-            hCtx.strokeStyle = 'rgba(52, 211, 153, 0.6)';
-            hCtx.lineWidth = 1.2;
-            const horizonY = h * 0.44 + st.simPitchDeg * 3 + st.tiltOffset * 2.5;
-            hCtx.beginPath();
-            hCtx.moveTo(0, horizonY);
-            hCtx.lineTo(w, horizonY);
-            hCtx.stroke();
-          }
-
-          hCtx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-          hCtx.fillRect(w * 0.22, 6, w * 0.56, 22);
-          hCtx.strokeStyle = '#3f3f46';
-          hCtx.strokeRect(w * 0.22, 6, w * 0.56, 22);
-          hCtx.fillStyle = '#38bdf8';
-          hCtx.font = 'bold 10px monospace';
-          hCtx.textAlign = 'center';
-          hCtx.fillText(`${st.airport.icao} (${st.airport.rwyLabel}) // AZ: ${az}° | TILT: ${Math.round(st.tiltOffset)}°`, w / 2, 21);
+          drawMsfsInstruments(hCtx, w, h, {
+            heading: (st.simHeadingDeg + st.panOffset + 360) % 360,
+            course: st.airport.rwyHeading,
+            speedKt: st.simSpeedKmh * 0.539957,
+            altFt: st.simAltM * 3.28084,
+            vsFpm: st.simPitchDeg * 140,
+            throttlePct: st.simSpeedKmh > 0 ? Math.min(100, 35 + (st.simSpeedKmh / st.aircraft.maxSpeedKmh) * 65) : 0,
+            fuelPct: 84,
+            aoaDeg: st.simPitchDeg,
+            gearDown: st.gearDown,
+            pitchDeg: st.simPitchDeg,
+          });
         }
         hCtx.restore();
       }
@@ -866,7 +1184,7 @@ function FlightSim3DViewport({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [camId, aircraft, airport, gearDown]);
+  }, [camId, aircraft, region, airport, gearDown]);
 
   return (
     <div className="relative w-full h-full">
@@ -885,15 +1203,14 @@ export default function App() {
   const [selectedAircraft, setSelectedAircraft] = useState<AircraftId>('H2_VALKYRIE');
   const [selectedAirportIcao, setSelectedAirportIcao] = useState<string>('SCAR');
   const [mapLayerId, setMapLayerId] = useState<MapLayerId>('SATELLITE');
+  const [autoFollowMap, setAutoFollowMap] = useState<boolean>(true);
 
-  // Simulador físico local de despegue y aterrizaje en cada aeropuerto
   const [flightPhase, setFlightPhase] = useState<FlightPhase>('PARKED');
   const [runwayProgress, setRunwayProgress] = useState<number>(0.02);
   const [localAltM, setLocalAltM] = useState<number>(0);
   const [localSpeedKmh, setLocalSpeedKmh] = useState<number>(0);
   const [localPitchDeg, setLocalPitchDeg] = useState<number>(0);
 
-  // Diseño personalizable de paneles (Drag & Drop + Tamaño)
   const [editLayoutMode, setEditLayoutMode] = useState<boolean>(false);
   const [panelOrder, setPanelOrder] = useState<PanelId[]>(() => {
     try {
@@ -913,8 +1230,8 @@ export default function App() {
   });
   const draggedPanelRef = useRef<PanelId | null>(null);
 
-  const [camPan, setCamPan] = useState(35);
-  const [camTilt, setCamTilt] = useState(12);
+  const [camPan, setCamPan] = useState(18);
+  const [camTilt, setCamTilt] = useState(10);
   const isDraggingCam = useRef(false);
   const lastMousePos = useRef({ x: 0, y: 0 });
 
@@ -933,6 +1250,11 @@ export default function App() {
 
   const aircraft = AIRCRAFT_MODELS[selectedAircraft];
   const currentAirport = CHILE_AIRPORTS.find((a) => a.icao === selectedAirportIcao) || CHILE_AIRPORTS[0];
+
+  // Latitud y Región de Chile dinámica según el desplazamiento en el mapa
+  const activeLat = flightPhase === 'CRUISE' && data ? data.lat : currentAirport.lat;
+  const activeLon = flightPhase === 'CRUISE' && data ? data.lon : currentAirport.lon;
+  const currentRegion = getRegionByLat(activeLat);
 
   const sendCmd = (payload: object) => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
@@ -967,7 +1289,7 @@ export default function App() {
     };
   }, []);
 
-  // Bucle físico de despegue y aterrizaje en cada aeropuerto
+  // Bucle físico de despegue y aterrizaje
   useEffect(() => {
     const interval = setInterval(() => {
       setFlightPhase((phase) => {
@@ -976,7 +1298,7 @@ export default function App() {
             const nextSpd = Math.min(aircraft.vRotateKmh + 30, spd + aircraft.vRotateKmh * 0.035);
             setRunwayProgress((p) => Math.min(0.95, p + 0.012));
             if (nextSpd >= aircraft.vRotateKmh) {
-              setLocalPitchDeg(12);
+              setLocalPitchDeg(11);
               setFlightPhase('CLIMB');
             }
             return nextSpd;
@@ -998,7 +1320,6 @@ export default function App() {
           setLocalSpeedKmh((data?.speed ?? 230) * aircraft.speedMultiplier || aircraft.maxSpeedKmh * 0.8);
           setLocalPitchDeg(data?.pitch ?? 0);
         } else if (phase === 'APPROACH') {
-          // Aproximación final ILS hacia la cabecera del aeropuerto seleccionado
           setGearDown(true);
           setLocalPitchDeg(-3.5);
           setLocalSpeedKmh((s) => Math.max(aircraft.vApproachKmh, s * 0.96));
@@ -1030,17 +1351,12 @@ export default function App() {
     return () => clearInterval(interval);
   }, [aircraft, data, localSpeedKmh]);
 
-  // Seleccionar aeropuerto y posicionar avión y mapa en su pista
   const handleSelectAirport = (icao: string) => {
     setSelectedAirportIcao(icao);
     const ap = CHILE_AIRPORTS.find((a) => a.icao === icao);
     if (!ap) return;
-    mapRef.current?.flyTo([ap.lat, ap.lon], 13, { duration: 1.2 });
-    if (planeMarkerRef.current) {
-      planeMarkerRef.current.setLatLng([ap.lat, ap.lon]);
-    }
+    mapRef.current?.flyTo([ap.lat, ap.lon], 11, { duration: 1.2 });
     if (flightPhase === 'CRUISE' || flightPhase === 'CLIMB') {
-      // Iniciar aproximación directa al aeropuerto elegido
       setRunwayProgress(-0.35);
       setLocalAltM(380);
       setFlightPhase('APPROACH');
@@ -1072,21 +1388,21 @@ export default function App() {
     setLocalAltM(390);
     setLocalSpeedKmh(aircraft.vApproachKmh * 1.25);
     setFlightPhase('APPROACH');
-    mapRef.current?.flyTo([currentAirport.lat, currentAirport.lon], 13, { duration: 1.2 });
+    mapRef.current?.flyTo([currentAirport.lat, currentAirport.lon], 12, { duration: 1.2 });
   };
 
   const handleSelectCamera = (id: CameraId) => {
     setActiveCam(id);
     const meta = CAMERAS.find((c) => c.id === id);
     setCamPan(meta?.basePan ?? 0);
-    setCamTilt(id === 'CAM8_EXTERNA' ? 12 : 0);
+    setCamTilt(id === 'CAM8_EXTERNA' ? 10 : 0);
   };
 
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return;
     const map = L.map(mapContainerRef.current, {
       center: [currentAirport.lat, currentAirport.lon],
-      zoom: 12,
+      zoom: 9,
       zoomControl: true,
     });
 
@@ -1117,10 +1433,9 @@ export default function App() {
     tileLayerRef.current.setUrl(MAP_LAYERS[mapLayerId].url);
   }, [mapLayerId]);
 
+  // Actualizar mapa automáticamente a medida que la aeronave avanza por cada región de Chile
   useEffect(() => {
     if (!mapRef.current) return;
-    const lat = flightPhase === 'CRUISE' && data ? data.lat : currentAirport.lat;
-    const lon = flightPhase === 'CRUISE' && data ? data.lon : currentAirport.lon;
     const hdg = flightPhase === 'CRUISE' && data ? data.heading : currentAirport.rwyHeading;
 
     const planeIcon = L.divIcon({
@@ -1135,10 +1450,19 @@ export default function App() {
     });
 
     if (!planeMarkerRef.current) {
-      planeMarkerRef.current = L.marker([lat, lon], { icon: planeIcon }).addTo(mapRef.current);
+      planeMarkerRef.current = L.marker([activeLat, activeLon], { icon: planeIcon }).addTo(mapRef.current);
     } else {
-      planeMarkerRef.current.setLatLng([lat, lon]);
+      planeMarkerRef.current.setLatLng([activeLat, activeLon]);
       planeMarkerRef.current.setIcon(planeIcon);
+    }
+
+    if (autoFollowMap && flightPhase === 'CRUISE') {
+      mapRef.current.panTo([activeLat, activeLon], { animate: true, duration: 0.8 });
+    }
+
+    if (data?.waypoints) {
+      routeLineRef.current?.setLatLngs(data.waypoints.map((w) => [w.lat, w.lon] as [number, number]));
+      trailLineRef.current?.setLatLngs(data.trail);
     }
 
     wpLayerRef.current?.clearLayers();
@@ -1154,7 +1478,7 @@ export default function App() {
         .on('click', () => handleSelectAirport(ap.icao))
         .addTo(wpLayerRef.current!);
     });
-  }, [data, aircraft, currentAirport, flightPhase, selectedAirportIcao]);
+  }, [data, aircraft, activeLat, activeLon, flightPhase, selectedAirportIcao, autoFollowMap]);
 
   const downloadBlackbox = async () => {
     const res = await fetch(`${API_URL}/api/blackbox`);
@@ -1163,11 +1487,10 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${aircraft.name}-${currentAirport.icao}-${Date.now()}.json`;
+    a.download = `${aircraft.name}-${currentRegion.code}-${Date.now()}.json`;
     a.click();
   };
 
-  // Funciones para personalizar layout Drag & Drop
   const handleDropPanel = (targetId: PanelId) => {
     const sourceId = draggedPanelRef.current;
     if (!sourceId || sourceId === targetId) return;
@@ -1193,7 +1516,6 @@ export default function App() {
 
   const renderCameraViewport = (camId: CameraId, compact = false) => {
     const camMeta = CAMERAS.find((c) => c.id === camId) || CAMERAS[0];
-    const machVal = (localSpeedKmh / 1225).toFixed(2);
     const hdg = flightPhase === 'CRUISE' && data ? data.heading : currentAirport.rwyHeading;
     const roll = flightPhase === 'CRUISE' && data ? data.roll : 0;
 
@@ -1223,6 +1545,7 @@ export default function App() {
         <FlightSim3DViewport
           camId={camId}
           aircraft={aircraft}
+          region={currentRegion}
           airport={currentAirport}
           flightPhase={flightPhase}
           simAltM={Math.round(localAltM)}
@@ -1237,31 +1560,10 @@ export default function App() {
           compact={compact}
         />
 
-        {!compact && camId !== 'CAM8_EXTERNA' && (
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-28 h-28 border border-emerald-400/50 rounded-full flex items-center justify-center">
-              <div className="w-2.5 h-2.5 border-2 border-amber-400 rounded-full" />
-            </div>
-          </div>
-        )}
-
         {!compact ? (
-          <>
-            <div className="absolute top-8 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5 bg-black/80 border border-zinc-800 px-2.5 py-1.5 rounded">
-              <div>SPD: {Math.round(localSpeedKmh)} KM/H (M {machVal})</div>
-              <div>ALT: {Math.round(localAltM)} M</div>
-              <div>FASE: <span className="text-cyan-400 font-bold">{flightPhase}</span></div>
-            </div>
-            <div className="absolute top-8 right-3 text-[11px] font-mono text-emerald-400 text-right space-y-0.5 bg-black/80 border border-zinc-800 px-2.5 py-1.5 rounded">
-              <div>HDG: {hdg}° ({currentAirport.icao})</div>
-              <div>PIT: {localPitchDeg.toFixed(1)}° | ROL: {roll}°</div>
-              <div>GEAR: <span className={gearDown ? 'text-amber-400' : 'text-emerald-400'}>{gearDown ? 'DOWN' : 'UP'}</span></div>
-            </div>
-            <div className="absolute bottom-2.5 left-3 right-3 flex justify-between text-[10px] font-mono text-zinc-200 bg-black/85 border border-zinc-800 px-2.5 py-1 rounded">
-              <span className="text-cyan-400 font-bold">{camMeta.label}</span>
-              <span>Arrastra para rotar 360° • {currentAirport.city} ({currentAirport.rwyLabel})</span>
-            </div>
-          </>
+          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 bg-black/75 border border-zinc-700/80 px-3 py-1 rounded-full text-[11px] font-mono text-amber-300 shadow">
+            {currentRegion.code} • {currentRegion.name} ({flightPhase})
+          </div>
         ) : (
           <div className="absolute bottom-1 left-1.5 right-1.5 flex justify-between text-[9px] font-mono text-cyan-300 bg-black/85 px-1.5 py-0.5 rounded">
             <span>{camMeta.short}</span>
@@ -1274,7 +1576,6 @@ export default function App() {
 
   const isHumanControl = data?.authority === 'HUMAN_OPERATOR';
 
-  // Renderizado de cada módulo arrastrable
   const renderModule = (panelId: PanelId) => {
     const spanClass = panelSpans[panelId] === 2 ? 'lg:col-span-2' : 'lg:col-span-1';
 
@@ -1313,18 +1614,18 @@ export default function App() {
 
     if (panelId === 'CAMERAS') {
       return wrapWithFrame(
-        'SIMULADOR 3D 360°',
+        'SIMULADOR FLIGHT SIMULATOR 3D',
         <>
           <div className="px-3 py-2 bg-black border-b border-zinc-800 flex items-center justify-between">
             <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-              <Camera className="w-4 h-4" /> SIMULADOR ÓPTICO 3D 360° (8 CÁMARAS)
+              <Camera className="w-4 h-4" /> VISOR FLIGHT SIMULATOR 3D (8 CÁMARAS 360°)
             </div>
             <div className="flex items-center gap-1.5">
               <button
                 onClick={() => {
                   const cam = CAMERAS.find((c) => c.id === activeCam);
                   setCamPan(cam?.basePan ?? 0);
-                  setCamTilt(activeCam === 'CAM8_EXTERNA' ? 12 : 0);
+                  setCamTilt(activeCam === 'CAM8_EXTERNA' ? 10 : 0);
                 }}
                 className="text-[10px] px-2 py-0.5 rounded bg-zinc-900 text-zinc-300 hover:bg-zinc-800 border border-zinc-800 flex items-center gap-1 cursor-pointer"
               >
@@ -1373,7 +1674,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="relative flex-1 min-h-[370px] bg-black">
+          <div className="relative flex-1 min-h-[390px] bg-black">
             {activeCam === 'MULTI_7' ? (
               <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1.5 p-1.5 bg-black">
                 {CAMERAS.map((c) => (
@@ -1387,7 +1688,7 @@ export default function App() {
                 ))}
                 <div className="bg-zinc-950 border border-zinc-800 rounded p-2 flex flex-col justify-center text-[10px] font-mono text-zinc-300">
                   <div className="text-cyan-400 font-bold">{aircraft.name}</div>
-                  <div>{currentAirport.icao} • {flightPhase}</div>
+                  <div>{currentRegion.name}</div>
                 </div>
               </div>
             ) : (
@@ -1400,33 +1701,45 @@ export default function App() {
 
     if (panelId === 'MAP') {
       return wrapWithFrame(
-        'MAPA TÁCTICO HD Y AEROPUERTOS',
+        'MAPA REGIONAL DE CHILE',
         <>
           <div className="px-3 py-2 bg-black border-b border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
             <div className="flex items-center gap-1.5 text-xs font-semibold text-cyan-400">
-              <Navigation className="w-4 h-4" /> MAPA HD // {currentAirport.icao}
+              <Navigation className="w-4 h-4" /> {currentRegion.code} • {currentRegion.capital.toUpperCase()}
             </div>
-            <div className="flex items-center gap-1 bg-zinc-950 p-0.5 rounded border border-zinc-800">
-              <Layers className="w-3 h-3 text-zinc-400 ml-1" />
-              {(Object.keys(MAP_LAYERS) as MapLayerId[]).map((lid) => (
-                <button
-                  key={lid}
-                  onClick={() => setMapLayerId(lid)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
-                    mapLayerId === lid ? 'bg-cyan-600 text-white font-bold' : 'text-zinc-400 hover:text-zinc-200'
-                  }`}
-                >
-                  {MAP_LAYERS[lid].label}
-                </button>
-              ))}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setAutoFollowMap(!autoFollowMap)}
+                className={`text-[10px] px-1.5 py-0.5 rounded border cursor-pointer ${
+                  autoFollowMap ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300' : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                }`}
+              >
+                {autoFollowMap ? 'AUTO-REGIÓN' : 'LIBRE'}
+              </button>
+              <div className="flex items-center gap-0.5 bg-zinc-950 p-0.5 rounded border border-zinc-800">
+                <Layers className="w-3 h-3 text-zinc-400 ml-1" />
+                {(Object.keys(MAP_LAYERS) as MapLayerId[]).map((lid) => (
+                  <button
+                    key={lid}
+                    onClick={() => setMapLayerId(lid)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                      mapLayerId === lid ? 'bg-cyan-600 text-white font-bold' : 'text-zinc-400 hover:text-zinc-200'
+                    }`}
+                  >
+                    {MAP_LAYERS[lid].label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
           <div ref={mapContainerRef} className="w-full h-64 z-10" />
 
-          {/* Selector rápido de los 7 aeropuertos de Chile */}
-          <div className="p-2.5 bg-black border-t border-zinc-800">
-            <div className="text-[10px] font-semibold text-zinc-400 uppercase mb-1.5">Seleccionar Aeropuerto para Despegue / Aterrizaje</div>
+          <div className="p-2.5 bg-black border-t border-zinc-800 space-y-2">
+            <div className="flex items-center justify-between text-[10px] font-mono">
+              <span className="text-zinc-400">REGIÓN ACTUAL:</span>
+              <span className="text-amber-300 font-bold">{currentRegion.name}</span>
+            </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
               {CHILE_AIRPORTS.map((ap) => (
                 <button
@@ -1454,7 +1767,7 @@ export default function App() {
         <div className="p-3 bg-black space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold text-cyan-400">
-              OPERACIONES DE PISTA // {currentAirport.icao} - {currentAirport.name} ({currentAirport.rwyLabel})
+              OPERACIONES // {currentAirport.icao} - {currentAirport.name} ({currentAirport.rwyLabel})
             </span>
             <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
               gearDown ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40'
@@ -1556,7 +1869,7 @@ export default function App() {
             <span className="text-[9px] bg-indigo-500/15 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded">SIN AUTORIDAD</span>
           </div>
           <p className="text-xs text-zinc-300 bg-black p-2 rounded-lg border border-zinc-800">
-            Aeronave: <strong>{aircraft.name}</strong> en <strong>{currentAirport.icao} ({currentAirport.city})</strong>. Fase actual: <strong>{flightPhase}</strong>.
+            Sobrevolando <strong>{currentRegion.name}</strong> ({activeLat.toFixed(2)}°, {activeLon.toFixed(2)}°). Bioma 3D: <strong>{currentRegion.biome}</strong>.
           </p>
           <div className="grid grid-cols-1 gap-1.5 text-xs">
             <button
@@ -1592,7 +1905,7 @@ export default function App() {
         </div>
         <div className="flex-1 overflow-y-auto space-y-1 max-h-40 pr-1 text-[11px]">
           <div className="p-2 rounded border bg-black border-zinc-800 text-zinc-300">
-            [INFO] Aeropuerto activo: {currentAirport.icao} ({currentAirport.rwyLabel}) • Modelo: {aircraft.name}
+            [REGIÓN {currentRegion.code}] {currentRegion.name} • Pista {currentAirport.icao} ({currentAirport.rwyLabel})
           </div>
           {data?.alerts.map((al, i) => (
             <div key={i} className="p-2 rounded border bg-black border-zinc-800 text-zinc-300">
@@ -1607,7 +1920,6 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-black text-zinc-200 flex flex-col">
-      {/* BARRA SUPERIOR + SELECTOR DE AVIÓN + EDITOR DE DISEÑO DE INTERFAZ */}
       <header className="bg-black border-b border-zinc-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 sticky top-0 z-50">
         <div className="flex items-center gap-2.5">
           <div className="w-9 h-9 rounded-lg bg-zinc-950 border border-cyan-500/40 flex items-center justify-center">
@@ -1620,11 +1932,10 @@ export default function App() {
                 {connected ? 'TELEMETRÍA LIVE' : 'SIMULACIÓN LOCAL'}
               </span>
             </div>
-            <p className="text-[11px] text-zinc-400">{aircraft.role} • <span className="text-cyan-400 font-mono">{currentAirport.icao} ({currentAirport.city})</span></p>
+            <p className="text-[11px] text-zinc-400">{currentRegion.name} • <span className="text-cyan-400 font-mono">{currentAirport.icao} ({currentAirport.city})</span></p>
           </div>
         </div>
 
-        {/* SELECTOR DE FLOTA */}
         <div className="flex items-center gap-1 bg-zinc-950 p-1 rounded-lg border border-zinc-800">
           {(Object.keys(AIRCRAFT_MODELS) as AircraftId[]).map((id) => {
             const m = AIRCRAFT_MODELS[id];
@@ -1644,7 +1955,6 @@ export default function App() {
           })}
         </div>
 
-        {/* BOTÓN PERSONALIZAR INTERFAZ + FAILSAFE */}
         <div className="flex items-center gap-2">
           <button
             onClick={() => setEditLayoutMode(!editLayoutMode)}
@@ -1688,7 +1998,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* GRID MODULAR PERSONALIZABLE (4 COLUMNAS BASE CON DRAG & DROP) */}
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-4 gap-3 p-3 bg-black items-start">
         {panelOrder.map((panelId) => renderModule(panelId))}
       </main>
