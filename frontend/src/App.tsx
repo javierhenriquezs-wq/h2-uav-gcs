@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ShieldAlert, Flame, Navigation,
   Play, Pause, RotateCcw, AlertTriangle, Camera, Download, Cpu,
-  Hand, Plane, Sliders
+  Hand, Plane, Sliders, Grid
 } from 'lucide-react';
 import L from 'leaflet';
 
@@ -48,10 +48,22 @@ interface Telemetry {
   ai_recommendation: string | null;
 }
 
+type CameraId = 'CAM1_PROA' | 'CAM2_GIMBAL' | 'CAM3_NADIR' | 'CAM4_FLIR' | 'CAM5_ALA_IZQ' | 'CAM6_ALA_DER' | 'CAM7_VTAIL' | 'MULTI_7';
+
+const CAMERAS: { id: CameraId; short: string; label: string; sensor: string }[] = [
+  { id: 'CAM1_PROA', short: '1. PROA', label: 'CAM 01 // PROA FPV (HUD)', sensor: '4K WIDE 120°' },
+  { id: 'CAM2_GIMBAL', short: '2. GIMBAL', label: 'CAM 02 // GIMBAL EO ESTABILIZADO', sensor: '30X OPTICAL' },
+  { id: 'CAM3_NADIR', short: '3. NADIR', label: 'CAM 03 // CENITAL / NADIR (-90°)', sensor: 'CARTOGRÁFICA' },
+  { id: 'CAM4_FLIR', short: '4. FLIR', label: 'CAM 04 // TÉRMICA INFRARROJA (LWIR)', sensor: 'FLIR 640x512' },
+  { id: 'CAM5_ALA_IZQ', short: '5. ALA IZQ', label: 'CAM 05 // ALA INVERTIDA BABOR', sensor: 'ESTRUCTURAL IZQ' },
+  { id: 'CAM6_ALA_DER', short: '6. ALA DER', label: 'CAM 06 // ALA INVERTIDA ESTRIBOR', sensor: 'ESTRUCTURAL DER' },
+  { id: 'CAM7_VTAIL', short: '7. V-TAIL', label: 'CAM 07 // DOBLE COLA EN V (POPA)', sensor: 'EMPENAGE / H2' },
+];
+
 export default function App() {
   const [data, setData] = useState<Telemetry | null>(null);
   const [connected, setConnected] = useState(false);
-  const [camMode, setCamMode] = useState<'FRONT' | 'DOWN' | 'SPLIT'>('FRONT');
+  const [activeCam, setActiveCam] = useState<CameraId>('CAM1_PROA');
   const [recording, setRecording] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -89,6 +101,13 @@ export default function App() {
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Teclas 1 a 7 cambian rápidamente de cámara durante el vuelo
+      if (['1', '2', '3', '4', '5', '6', '7'].includes(e.key)) {
+        const idx = Number(e.key) - 1;
+        if (CAMERAS[idx]) setActiveCam(CAMERAS[idx].id);
+      }
+      if (e.key === '0') setActiveCam('MULTI_7');
+
       if (!data || !['MANUAL', 'ASSISTED'].includes(data.mode)) return;
       if (e.key === 'w' || e.key === 'W') sendCmd({ action: 'MANUAL_INPUT', dpitch: 1.5 });
       if (e.key === 's' || e.key === 'S') sendCmd({ action: 'MANUAL_INPUT', dpitch: -1.5 });
@@ -109,12 +128,10 @@ export default function App() {
       zoomControl: false,
     });
 
-    // Mapa OpenStreetMap estándar (sin API Key, muestra ciudades y rutas de Chile)
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
 
-    // Geofence nacional visual
     L.rectangle([[-56.0, -76.0], [-17.5, -66.5]], {
       color: '#ef4444',
       weight: 2,
@@ -185,6 +202,116 @@ export default function App() {
     a.href = url;
     a.download = `H2-Valkyrie-Blackbox-${Date.now()}.json`;
     a.click();
+  };
+
+  const renderCameraViewport = (camId: CameraId, compact = false) => {
+    const roll = data?.roll || 0;
+    const pitch = data?.pitch || 0;
+    const camMeta = CAMERAS.find((c) => c.id === camId) || CAMERAS[0];
+
+    const bgStyle =
+      camId === 'CAM4_FLIR'
+        ? 'bg-gradient-to-b from-zinc-950 via-neutral-800 to-zinc-200/80'
+        : camId === 'CAM3_NADIR'
+        ? 'bg-[radial-gradient(circle_at_center,#1e293b_0%,#0f172a_70%,#020617_100%)]'
+        : 'bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950/70';
+
+    return (
+      <div className={`relative w-full h-full ${bgStyle} overflow-hidden select-none`}>
+        {/* Horizonte / Terreno dinámico según cámara */}
+        {camId === 'CAM3_NADIR' ? (
+          <div
+            className="absolute inset-0 opacity-35"
+            style={{
+              backgroundImage:
+                'linear-gradient(to right, #38bdf8 1px, transparent 1px), linear-gradient(to bottom, #38bdf8 1px, transparent 1px)',
+              backgroundSize: compact ? '20px 20px' : '36px 36px',
+              transform: `rotate(${-(data?.heading || 0)}deg) scale(1.4)`,
+            }}
+          />
+        ) : (
+          <div
+            className="absolute inset-0 flex items-center justify-center transition-transform duration-150"
+            style={{
+              transform: `rotate(${
+                camId === 'CAM5_ALA_IZQ' ? pitch - 90 : camId === 'CAM6_ALA_DER' ? -pitch + 90 : camId === 'CAM7_VTAIL' ? roll : -roll
+              }deg) translateY(${pitch * (compact ? 1.5 : 3)}px)`,
+            }}
+          >
+            <div
+              className={`w-[160%] h-0.5 ${
+                camId === 'CAM4_FLIR' ? 'bg-white shadow-[0_0_8px_#ffffff]' : 'bg-emerald-400/80 shadow-[0_0_8px_#34d399]'
+              }`}
+            />
+          </div>
+        )}
+
+        {/* Siluetas estructurales del UAV para cámaras de inspección */}
+        {camId === 'CAM5_ALA_IZQ' && (
+          <svg viewBox="0 0 200 100" className="absolute bottom-0 left-0 w-3/4 h-2/3 opacity-75 pointer-events-none">
+            <polygon points="0,100 175,35 190,45 45,100" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="60" y1="92" x2="165" y2="48" stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
+          </svg>
+        )}
+
+        {camId === 'CAM6_ALA_DER' && (
+          <svg viewBox="0 0 200 100" className="absolute bottom-0 right-0 w-3/4 h-2/3 opacity-75 pointer-events-none">
+            <polygon points="200,100 25,35 10,45 155,100" fill="#1e293b" stroke="#38bdf8" strokeWidth="1.5" />
+            <line x1="140" y1="92" x2="35" y2="48" stroke="#f59e0b" strokeWidth="1" strokeDasharray="3,3" />
+          </svg>
+        )}
+
+        {camId === 'CAM7_VTAIL' && (
+          <svg viewBox="0 0 200 100" className="absolute bottom-0 inset-x-0 w-full h-2/3 opacity-80 pointer-events-none">
+            <polygon points="90,100 45,25 58,25 100,100" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" />
+            <polygon points="110,100 155,25 142,25 100,100" fill="#0f172a" stroke="#38bdf8" strokeWidth="1.5" />
+            <circle cx="100" cy="88" r="10" fill="none" stroke="#22d3ee" strokeWidth="1.5" />
+          </svg>
+        )}
+
+        {/* Retícula central */}
+        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+          {camId === 'CAM2_GIMBAL' || camId === 'CAM4_FLIR' ? (
+            <div className={`${compact ? 'w-12 h-12' : 'w-28 h-28'} border border-cyan-400/60 relative flex items-center justify-center`}>
+              <div className="w-2 h-2 bg-red-500 rounded-full" />
+              <div className="absolute -top-2 left-1/2 w-0.5 h-2 bg-cyan-400" />
+              <div className="absolute -bottom-2 left-1/2 w-0.5 h-2 bg-cyan-400" />
+              <div className="absolute -left-2 top-1/2 w-2 h-0.5 bg-cyan-400" />
+              <div className="absolute -right-2 top-1/2 w-2 h-0.5 bg-cyan-400" />
+            </div>
+          ) : (
+            <div className={`${compact ? 'w-12 h-12' : 'w-28 h-28'} border border-emerald-500/35 rounded-full flex items-center justify-center`}>
+              <div className="w-2.5 h-2.5 border-2 border-amber-400 rounded-full" />
+            </div>
+          )}
+        </div>
+
+        {/* Telemetría superpuesta */}
+        {!compact ? (
+          <>
+            <div className="absolute top-2 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5 bg-slate-950/50 px-1.5 py-1 rounded">
+              <div>SPD: {data?.speed ?? 0} KM/H</div>
+              <div>ALT: {data?.alt ?? 0} M</div>
+              <div>V/S: {data?.vspeed ?? 0} M/S</div>
+            </div>
+            <div className="absolute top-2 right-3 text-[11px] font-mono text-emerald-400 text-right space-y-0.5 bg-slate-950/50 px-1.5 py-1 rounded">
+              <div>HDG: {data?.heading ?? 0}°</div>
+              <div>PIT: {data?.pitch ?? 0}° | ROL: {data?.roll ?? 0}°</div>
+              <div>THR: {data?.throttle ?? 0}%</div>
+            </div>
+            <div className="absolute bottom-2 left-3 right-3 flex justify-between text-[10px] font-mono text-slate-200 bg-slate-950/75 px-2 py-1 rounded">
+              <span className="text-cyan-300 font-bold">{camMeta.label} [{camMeta.sensor}]</span>
+              <span>LAT {data?.lat} / LON {data?.lon}</span>
+            </div>
+          </>
+        ) : (
+          <div className="absolute bottom-1 left-1.5 right-1.5 flex justify-between text-[9px] font-mono text-cyan-300 bg-slate-950/80 px-1.5 py-0.5 rounded">
+            <span>{camMeta.short}</span>
+            <span>{camMeta.sensor}</span>
+          </div>
+        )}
+      </div>
+    );
   };
 
   const isHumanControl = data?.authority === 'HUMAN_OPERATOR';
@@ -263,65 +390,87 @@ export default function App() {
 
       <main className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-3 p-3">
         <div className="lg:col-span-4 flex flex-col gap-3">
+          {/* PANEL DE 7 CÁMARAS */}
           <div className="bg-slate-900/80 border border-slate-800 rounded-xl overflow-hidden flex flex-col">
             <div className="px-3 py-2 bg-slate-950 border-b border-slate-800 flex items-center justify-between">
               <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-                <Camera className="w-4 h-4" /> VISOR ELECTRO-ÓPTICO / HUD
+                <Camera className="w-4 h-4" /> SISTEMA ÓPTICO (7 CÁMARAS)
               </div>
               <div className="flex items-center gap-1">
-                {(['FRONT', 'DOWN', 'SPLIT'] as const).map((m) => (
-                  <button
-                    key={m}
-                    onClick={() => setCamMode(m)}
-                    className={`text-[10px] px-2 py-0.5 rounded cursor-pointer ${camMode === m ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-400'}`}
-                  >
-                    {m === 'FRONT' ? 'FRONTAL' : m === 'DOWN' ? 'INFERIOR' : 'DIVIDIDA'}
-                  </button>
-                ))}
+                <button
+                  onClick={() => setActiveCam('MULTI_7')}
+                  className={`text-[10px] px-2 py-0.5 rounded flex items-center gap-1 cursor-pointer ${
+                    activeCam === 'MULTI_7' ? 'bg-cyan-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                  }`}
+                  title="Ver las 7 cámaras simultáneamente (Tecla 0)"
+                >
+                  <Grid className="w-3 h-3" /> 7-CAM
+                </button>
                 <button
                   onClick={() => setRecording(!recording)}
-                  className={`text-[10px] px-2 py-0.5 rounded ml-1 cursor-pointer ${recording ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-800 text-slate-400'}`}
+                  className={`text-[10px] px-2 py-0.5 rounded cursor-pointer ${recording ? 'bg-red-600 text-white animate-pulse' : 'bg-slate-800 text-slate-400'}`}
                 >
                   {recording ? '● REC' : 'REC'}
                 </button>
               </div>
             </div>
 
-            <div className="relative h-64 bg-gradient-to-b from-sky-950 via-slate-900 to-amber-950/60 overflow-hidden select-none">
-              <div
-                className="absolute inset-0 flex items-center justify-center transition-transform duration-150"
-                style={{
-                  transform: `rotate(${-(data?.roll || 0)}deg) translateY(${(data?.pitch || 0) * 3}px)`,
-                }}
+            {/* Selector rápido de las 7 cámaras (Teclas 1-7) */}
+            <div className="px-2 py-1.5 bg-slate-950/90 border-b border-slate-800 grid grid-cols-4 gap-1">
+              {CAMERAS.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveCam(c.id)}
+                  className={`text-[10px] py-1 px-1.5 rounded font-mono truncate cursor-pointer transition ${
+                    activeCam === c.id
+                      ? 'bg-cyan-600 text-white font-bold'
+                      : 'bg-slate-800/90 text-slate-300 hover:bg-slate-700'
+                  }`}
+                >
+                  {c.short}
+                </button>
+              ))}
+              <button
+                onClick={() => setActiveCam('MULTI_7')}
+                className={`text-[10px] py-1 px-1.5 rounded font-mono truncate cursor-pointer transition ${
+                  activeCam === 'MULTI_7'
+                    ? 'bg-amber-500 text-slate-950 font-bold'
+                    : 'bg-slate-800/90 text-amber-300 hover:bg-slate-700'
+                }`}
               >
-                <div className="w-[150%] h-0.5 bg-emerald-400/70 shadow-[0_0_8px_#34d399]" />
-              </div>
-
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="w-28 h-28 border border-emerald-500/30 rounded-full flex items-center justify-center">
-                  <div className="w-3 h-3 border-2 border-amber-400 rounded-full" />
-                </div>
-              </div>
-
-              <div className="absolute top-2 left-3 text-[11px] font-mono text-emerald-400 space-y-0.5">
-                <div>SPD: {data?.speed ?? 0} KM/H</div>
-                <div>ALT: {data?.alt ?? 0} M</div>
-                <div>V/S: {data?.vspeed ?? 0} M/S</div>
-              </div>
-              <div className="absolute top-2 right-3 text-[11px] font-mono text-emerald-400 text-right space-y-0.5">
-                <div>HDG: {data?.heading ?? 0}°</div>
-                <div>PIT: {data?.pitch ?? 0}° | ROL: {data?.roll ?? 0}°</div>
-                <div>THR: {data?.throttle ?? 0}%</div>
-              </div>
-              <div className="absolute bottom-2 left-3 right-3 flex justify-between text-[10px] font-mono text-slate-300 bg-slate-950/60 px-2 py-1 rounded">
-                <span>CAM: {camMode}</span>
-                <span>LAT {data?.lat} / LON {data?.lon}</span>
-              </div>
+                0. TODAS
+              </button>
             </div>
 
+            {/* Visor Principal o Mosaico de 7 Cámaras */}
+            <div className="relative h-64 bg-slate-950">
+              {activeCam === 'MULTI_7' ? (
+                <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1 p-1">
+                  {CAMERAS.map((c) => (
+                    <div
+                      key={c.id}
+                      onClick={() => setActiveCam(c.id)}
+                      className="cursor-pointer border border-slate-800 hover:border-cyan-400 rounded overflow-hidden"
+                      title={`Clic para ampliar ${c.label}`}
+                    >
+                      {renderCameraViewport(c.id, true)}
+                    </div>
+                  ))}
+                  <div className="col-span-2 bg-slate-900/90 border border-slate-800 rounded p-2 flex flex-col justify-center text-[10px] font-mono text-slate-300">
+                    <div className="text-cyan-400 font-bold">TELEMETRÍA MULTICÁMARA</div>
+                    <div>HDG {data?.heading ?? 0}° | ALT {data?.alt ?? 0}m | SPD {data?.speed ?? 0}km/h</div>
+                    <div className="text-slate-400">Clic en cualquier cámara o teclas 1–7 para ampliar</div>
+                  </div>
+                </div>
+              ) : (
+                renderCameraViewport(activeCam, false)
+              )}
+            </div>
+
+            {/* Controles de vuelo manual */}
             <div className="p-3 bg-slate-950/70 border-t border-slate-800">
               <div className="flex justify-between items-center mb-2">
-                <span className="text-[11px] font-semibold text-slate-400">CONTROLES DE VUELO (Teclas W/A/S/D + Q/E)</span>
+                <span className="text-[11px] font-semibold text-slate-400">CONTROLES DE VUELO (W/A/S/D + Q/E | Cámaras 1-7)</span>
                 <span className={`text-[10px] px-2 py-0.5 rounded ${isHumanControl ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-800 text-slate-500'}`}>
                   {isHumanControl ? 'ACTIVO' : 'BLOQUEADO EN AUTO'}
                 </span>
