@@ -298,7 +298,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     canopy.position.set(0, 0.34, -1.9);
     root.add(canopy);
 
-    // Alas invertidas con winglets
     const wingL = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.15), hullMat);
     wingL.position.set(-3.6, 0.06, -0.35);
     wingL.rotation.y = -0.22;
@@ -314,7 +313,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     wingletR.rotation.z = -0.25;
     root.add(wingL, wingletL, wingR, wingletR);
 
-    // Doble V-Tail
     const vL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.95, 0.95), hullMat);
     vL.position.set(-0.78, 0.75, 3.3);
     vL.rotation.z = 0.52;
@@ -506,7 +504,6 @@ function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean):
     ctx.fill();
   }
 
-  // Lagos / Fiordos / Salares según la región de Chile
   if (region.biome === 'PATAGONIA_FJORDS' || region.biome === 'SOUTHERN_LAKES') {
     ctx.fillStyle = isFlir ? '#18181b' : '#0c4a6e';
     for (let l = 0; l < 6; l++) {
@@ -523,7 +520,6 @@ function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean):
   return tex;
 }
 
-// Dibuja los instrumentos estilo Microsoft Flight Simulator en las 4 esquinas del visor
 function drawMsfsInstruments(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -543,6 +539,19 @@ function drawMsfsInstruments(
 ) {
   const { heading, course, speedKt, altFt, vsFpm, throttlePct, fuelPct, aoaDeg, gearDown, pitchDeg } = params;
 
+  // Indicador central de cabeceo (Pitch Reference Bar)
+  const pitchOffsetY = Math.max(-50, Math.min(50, pitchDeg * 3));
+  ctx.save();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(w / 2 - 42, h / 2 + pitchOffsetY);
+  ctx.lineTo(w / 2 - 14, h / 2 + pitchOffsetY);
+  ctx.moveTo(w / 2 + 14, h / 2 + pitchOffsetY);
+  ctx.lineTo(w / 2 + 42, h / 2 + pitchOffsetY);
+  ctx.stroke();
+  ctx.restore();
+
   // 1. SUPERIOR IZQUIERDA: BRÚJULA CIRCULAR GIRATORIA (HSI / COMPASS ROSE)
   const cx = 66;
   const cy = 68;
@@ -557,7 +566,6 @@ function drawMsfsInstruments(
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  // Caja digital HDG superior
   ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
   ctx.fillRect(cx - 24, cy - r - 18, 48, 16);
   ctx.strokeStyle = '#38bdf8';
@@ -567,14 +575,12 @@ function drawMsfsInstruments(
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(heading)}°`, cx, cy - r - 6);
 
-  // Etiquetas HDG y CRS
   ctx.font = 'bold 8px monospace';
   ctx.fillStyle = '#38bdf8';
   ctx.fillText(`HDG ${Math.round(heading)}°`, cx - 44, cy - r - 6);
   ctx.fillStyle = '#e879f9';
   ctx.fillText(`CRS ${Math.round(course)}°`, cx + 44, cy - r - 6);
 
-  // Disco giratorio con rumbos
   ctx.translate(cx, cy);
   ctx.rotate((-heading * Math.PI) / 180);
 
@@ -601,7 +607,6 @@ function drawMsfsInstruments(
     }
   }
 
-  // Aguja de curso magenta
   const crsRad = (course * Math.PI) / 180;
   ctx.rotate(crsRad);
   ctx.strokeStyle = '#e879f9';
@@ -612,7 +617,6 @@ function drawMsfsInstruments(
   ctx.stroke();
   ctx.restore();
 
-  // Avión central fijo en brújula
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = 1.8;
   ctx.beginPath();
@@ -626,7 +630,6 @@ function drawMsfsInstruments(
   const blX = 12;
   const blY = h - 122;
 
-  // Cinta vertical de Airspeed (Nudos KT)
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(blX, blY, 54, 110);
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
@@ -658,7 +661,6 @@ function drawMsfsInstruments(
   }
   ctx.restore();
 
-  // Ventana central negra de velocidad actual
   ctx.fillStyle = '#000000';
   ctx.fillRect(blX + 2, blY + 45, 46, 20);
   ctx.strokeStyle = '#ffffff';
@@ -672,7 +674,6 @@ function drawMsfsInstruments(
   ctx.font = '8px monospace';
   ctx.fillText(`KT`, blX + 27, blY + 105);
 
-  // Reloj circular ENGINE %
   const engX = blX + 60;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(engX, blY + 18, 66, 92);
@@ -702,7 +703,6 @@ function drawMsfsInstruments(
   ctx.font = 'bold 10px monospace';
   ctx.fillText(`${Math.round(throttlePct)}%`, dialCx, blY + 102);
 
-  // Barra vertical FUEL
   const fuelX = engX + 70;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(fuelX, blY + 18, 34, 92);
@@ -722,7 +722,6 @@ function drawMsfsInstruments(
   ctx.font = 'bold 9px monospace';
   ctx.fillText(`${Math.round(fuelPct)}%`, fuelX + 17, blY + 102);
 
-  // Barra AOA
   const aoaX = fuelX + 38;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(aoaX, blY + 18, 32, 92);
@@ -739,7 +738,6 @@ function drawMsfsInstruments(
   const brX = w - 144;
   const brY = h - 122;
 
-  // Caja FLAPS / GEAR
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(brX, brY + 18, 52, 92);
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
@@ -754,7 +752,6 @@ function drawMsfsInstruments(
   ctx.fillStyle = '#38bdf8';
   ctx.fillText(gearDown ? 'FLP 15°' : 'FLP 0°', brX + 26, brY + 82);
 
-  // Cinta vertical ALTITUDE (Pies FT) + VS
   const altX = brX + 56;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
   ctx.fillRect(altX, brY, 76, 110);
@@ -787,7 +784,6 @@ function drawMsfsInstruments(
   }
   ctx.restore();
 
-  // Ventana negra de altitud actual
   ctx.fillStyle = '#000000';
   ctx.fillRect(altX + 4, brY + 45, 50, 20);
   ctx.strokeStyle = '#ffffff';
@@ -797,14 +793,12 @@ function drawMsfsInstruments(
   ctx.textAlign = 'center';
   ctx.fillText(`${Math.round(altFt)}`, altX + 29, brY + 59);
 
-  // Columna VS (Variómetro)
   ctx.fillStyle = '#94a3b8';
   ctx.font = '8px monospace';
   ctx.fillText(`${Math.round(vsFpm)}`, altX + 64, brY + 58);
   ctx.fillText('29.92 IN', altX + 38, brY + 105);
 }
 
-// Visor 3D Flight Simulator con cambio dinámico por cada Región de Chile
 function FlightSim3DViewport({
   camId,
   aircraft,
@@ -903,7 +897,6 @@ function FlightSim3DViewport({
     sunLight.position.set(-550, 240, -900);
     scene.add(sunLight);
 
-    // Cúpula celeste atardecer dorado estilo MSFS
     const skyGeo = new THREE.SphereGeometry(2800, 32, 20);
     const skyCanvas = document.createElement('canvas');
     skyCanvas.width = 32;
@@ -923,7 +916,6 @@ function FlightSim3DViewport({
     );
     scene.add(skyDome);
 
-    // Disco solar en el horizonte oeste
     const sunDisc = new THREE.Mesh(
       new THREE.CircleGeometry(68, 24),
       new THREE.MeshBasicMaterial({ color: 0xfef9c3, fog: false })
@@ -932,7 +924,6 @@ function FlightSim3DViewport({
     sunDisc.lookAt(0, 0, 0);
     scene.add(sunDisc);
 
-    // Nubes iluminadas por el atardecer
     const cloudsGroup = new THREE.Group();
     const cloudMat = new THREE.MeshStandardMaterial({
       color: 0xffedd5,
@@ -956,7 +947,6 @@ function FlightSim3DViewport({
     }
     scene.add(cloudsGroup);
 
-    // Terreno 3D regional: Costa del Pacífico a la izquierda, valle central, Cordillera de los Andes a la derecha/fondo
     const terrainGeo = new THREE.PlaneGeometry(3400, 3400, 130, 130);
     terrainGeo.rotateX(-Math.PI / 2);
     const posAttr = terrainGeo.attributes.position;
@@ -968,8 +958,6 @@ function FlightSim3DViewport({
       const x = posAttr.getX(i);
       const z = posAttr.getZ(i);
       const corridorMask = THREE.MathUtils.smoothstep(Math.abs(x), 75, 260);
-
-      // Si la región tiene costa, hacia el oeste (x < -380) desciende al Océano Pacífico
       const isSea = region.hasCoastSea && x < -420;
       const ridgeNoise =
         Math.sin(x * 0.012) * Math.cos(z * 0.012) * 34 +
@@ -1007,7 +995,6 @@ function FlightSim3DViewport({
     );
     scene.add(terrainMesh);
 
-    // Pista de aterrizaje 3D + Torre de control + Luces PAPI
     const runwayGroup = new THREE.Group();
     const runwayMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(42, 820),
@@ -1142,7 +1129,6 @@ function FlightSim3DViewport({
 
       renderer.render(scene, camera);
 
-      // Dibujar instrumentos MSFS en las 4 esquinas
       const hud = hudCanvasRef.current;
       if (hud) {
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -1251,7 +1237,6 @@ export default function App() {
   const aircraft = AIRCRAFT_MODELS[selectedAircraft];
   const currentAirport = CHILE_AIRPORTS.find((a) => a.icao === selectedAirportIcao) || CHILE_AIRPORTS[0];
 
-  // Latitud y Región de Chile dinámica según el desplazamiento en el mapa
   const activeLat = flightPhase === 'CRUISE' && data ? data.lat : currentAirport.lat;
   const activeLon = flightPhase === 'CRUISE' && data ? data.lon : currentAirport.lon;
   const currentRegion = getRegionByLat(activeLat);
@@ -1289,7 +1274,6 @@ export default function App() {
     };
   }, []);
 
-  // Bucle físico de despegue y aterrizaje
   useEffect(() => {
     const interval = setInterval(() => {
       setFlightPhase((phase) => {
@@ -1433,7 +1417,6 @@ export default function App() {
     tileLayerRef.current.setUrl(MAP_LAYERS[mapLayerId].url);
   }, [mapLayerId]);
 
-  // Actualizar mapa automáticamente a medida que la aeronave avanza por cada región de Chile
   useEffect(() => {
     if (!mapRef.current) return;
     const hdg = flightPhase === 'CRUISE' && data ? data.heading : currentAirport.rwyHeading;
