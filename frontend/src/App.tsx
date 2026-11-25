@@ -1,10 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  ShieldAlert, Flame, Navigation,
-  RotateCcw, AlertTriangle, Camera, Download, Cpu,
-  Plane, Grid, Power,
-  Layers, LayoutGrid, PlaneLanding, PlaneTakeoff,
-  Monitor, Sun, CloudRain, Radio, Wifi, Eye, Package, Settings
+  ShieldAlert, Download, Wifi, Eye, Package, Settings
 } from 'lucide-react';
 import L from 'leaflet';
 import * as THREE from 'three';
@@ -239,7 +235,6 @@ const CAMERAS: { id: CameraId; short: string; label: string; basePan: number }[]
   { id: 'CAM7_VTAIL', short: 'COLA V', label: 'EMPENAJE DORSAL', basePan: 180 },
 ];
 
-// Construcción 3D de alta fidelidad de la aeronave (incluyendo ala invertida H2-VALKYRIE con franjas luminosas cian)
 function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean, flapsDeg: number): THREE.Group {
   const root = new THREE.Group();
 
@@ -268,7 +263,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean, flapsD
   });
 
   if (spec.id === 'H2_VALKYRIE') {
-    // Fuselaje aerodinámico integrado
     const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.34, 7.6, 32), hullMat);
     fuselage.rotation.x = Math.PI / 2;
     root.add(fuselage);
@@ -287,7 +281,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean, flapsD
     canopy.position.set(0, 0.32, -2.1);
     root.add(canopy);
 
-    // Alas invertidas estilo Valkyrie con borde luminoso cian
     const wingL = new THREE.Mesh(new THREE.BoxGeometry(7.4, 0.11, 1.25), hullMat);
     wingL.position.set(-3.6, 0.06, -0.25);
     wingL.rotation.y = -0.24;
@@ -320,7 +313,6 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean, flapsD
 
     root.add(wingL, stripL, flapL, wingletL, wingR, stripR, flapR, wingletR);
 
-    // Doble estabilizador V-Tail
     const vL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.0, 1.0), hullMat);
     vL.position.set(-0.78, 0.78, 3.2);
     vL.rotation.z = 0.54;
@@ -537,7 +529,6 @@ function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean):
   return tex;
 }
 
-// Instrumentos estilo Microsoft Flight Simulator dibujados directamente en el visor 4K
 function drawMsfsInstruments(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -582,7 +573,6 @@ function drawMsfsInstruments(
     rollDeg,
   } = params;
 
-  // Horizonte central sutil
   const pitchOffsetY = Math.max(-60, Math.min(60, pitchDeg * 3.2));
   ctx.save();
   ctx.translate(w / 2, h / 2 + pitchOffsetY);
@@ -611,7 +601,6 @@ function drawMsfsInstruments(
   ctx.lineWidth = 1.6;
   ctx.stroke();
 
-  // Caja digital HDG superior
   ctx.fillStyle = 'rgba(10, 15, 24, 0.94)';
   ctx.fillRect(cx - 28, cy - r - 22, 56, 18);
   ctx.strokeStyle = '#38bdf8';
@@ -672,7 +661,6 @@ function drawMsfsInstruments(
   ctx.lineTo(cx + 9, cy);
   ctx.stroke();
 
-  // Placa con nombre de aeronave debajo de la brújula
   ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
   ctx.fillRect(16, cy + r + 10, 124, 22);
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
@@ -682,7 +670,6 @@ function drawMsfsInstruments(
   ctx.textAlign = 'center';
   ctx.fillText(aircraftName, 78, cy + r + 25);
 
-  // Caja FMS a la derecha de la brújula
   ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
   ctx.fillRect(142, 52, 118, 36);
   ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
@@ -742,7 +729,6 @@ function drawMsfsInstruments(
   ctx.font = '8px monospace';
   ctx.fillText(`TAS ${Math.round(tasKt)} KTS`, blX + 32, blY + 119);
 
-  // Reloj ENGINE %
   const engX = blX + 70;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.84)';
   ctx.fillRect(engX, blY + 22, 76, 104);
@@ -772,7 +758,6 @@ function drawMsfsInstruments(
   ctx.font = 'bold 11px monospace';
   ctx.fillText(`${Math.round(throttlePct)}%`, dialCx, blY + 117);
 
-  // Barra FUEL
   const fuelX = engX + 80;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.84)';
   ctx.fillRect(fuelX, blY + 22, 40, 104);
@@ -792,7 +777,6 @@ function drawMsfsInstruments(
   ctx.font = 'bold 10px monospace';
   ctx.fillText(`${Math.round(fuelPct)}%`, fuelX + 20, blY + 117);
 
-  // Barra AOA
   const aoaX = fuelX + 44;
   ctx.fillStyle = 'rgba(9, 13, 22, 0.84)';
   ctx.fillRect(aoaX, blY + 22, 38, 104);
@@ -1034,7 +1018,6 @@ function FlightSim3DViewport({
     sunDisc.visible = weather !== 'NIGHT_NVG' && weather !== 'OVERCAST_ANDES';
     scene.add(sunDisc);
 
-    // Nubes volumétricas
     const cloudsGroup = new THREE.Group();
     const cloudMat = new THREE.MeshStandardMaterial({
       color: weather === 'GOLDEN_HOUR' ? 0xffedd5 : 0xf8fafc,
@@ -1058,7 +1041,6 @@ function FlightSim3DViewport({
     }
     scene.add(cloudsGroup);
 
-    // Terreno 4K de Chile con Cordillera de los Andes nevada a la izquierda/fondo y valle a la derecha
     const terrainGeo = new THREE.PlaneGeometry(4000, 4000, 160, 160);
     terrainGeo.rotateX(-Math.PI / 2);
     const posAttr = terrainGeo.attributes.position;
@@ -1107,7 +1089,6 @@ function FlightSim3DViewport({
     );
     scene.add(terrainMesh);
 
-    // Pista de aterrizaje 4K
     const runwayGroup = new THREE.Group();
     const runwayMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(42, 820),
@@ -1317,7 +1298,7 @@ export default function App() {
   const [localPitchDeg, setLocalPitchDeg] = useState<number>(4.2);
   const [localRollDeg, setLocalRollDeg] = useState<number>(-14);
   const [flapsDeg, setFlapsDeg] = useState<number>(10);
-  const [trimPct, setTrimPct] = useState<number>(4);
+  const [trimPct] = useState<number>(4);
   const [autopilotEngaged, setAutopilotEngaged] = useState<boolean>(true);
 
   const [camPan, setCamPan] = useState(24);
@@ -1376,7 +1357,6 @@ export default function App() {
     };
   }, []);
 
-  // Controles de teclado Flight Simulator (WASD, G, F)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'g' || e.key === 'G') setGearDown((g) => !g);
@@ -1392,7 +1372,6 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [autopilotEngaged]);
 
-  // Dinámica de vuelo y transición de fases
   useEffect(() => {
     const interval = setInterval(() => {
       setFlightPhase((phase) => {
@@ -1463,7 +1442,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [aircraft, data, localSpeedKmh, autopilotEngaged, localPitchDeg]);
 
-  // Inicializar mapa táctico regional cuando se abre el panel MAP
   useEffect(() => {
     if (activeDrawer !== 'MAP' || !mapContainerRef.current) return;
     if (mapRef.current) {
