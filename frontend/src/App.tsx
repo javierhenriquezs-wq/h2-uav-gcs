@@ -3,7 +3,8 @@ import {
   ShieldAlert, Flame, Navigation,
   RotateCcw, AlertTriangle, Camera, Download, Cpu,
   Hand, Plane, Grid, CheckCircle2, Power, ArrowUpCircle, ArrowDownCircle,
-  Layers, Compass, LayoutGrid, GripVertical, Maximize2, Minimize2, PlaneLanding, PlaneTakeoff
+  Layers, Compass, LayoutGrid, GripVertical, Maximize2, Minimize2, PlaneLanding, PlaneTakeoff,
+  Monitor, Sun, CloudRain, Sparkles, Sliders, Radio
 } from 'lucide-react';
 import L from 'leaflet';
 import * as THREE from 'three';
@@ -52,6 +53,7 @@ interface Telemetry {
 
 type AircraftId = 'H2_VALKYRIE' | 'SR_71' | 'F_35' | 'F_22';
 type MapLayerId = 'SATELLITE' | 'TOPO' | 'DARK';
+type WeatherPreset = 'GOLDEN_HOUR' | 'CLEAR_DAY' | 'NIGHT_NVG' | 'OVERCAST_ANDES';
 type CameraId =
   | 'CAM8_EXTERNA'
   | 'CAM1_PROA'
@@ -114,16 +116,17 @@ interface AirportSpec {
   lon: number;
   rwyHeading: number;
   rwyLabel: string;
+  ilsFreq: string;
 }
 
 const CHILE_AIRPORTS: AirportSpec[] = [
-  { icao: 'SCAR', name: 'Chacalluta Intl', city: 'Arica', regionCode: 'XV', lat: -18.3485, lon: -70.3387, rwyHeading: 20, rwyLabel: 'RWY 02/20' },
-  { icao: 'SCDA', name: 'Diego Aracena', city: 'Iquique', regionCode: 'I', lat: -20.5352, lon: -70.1813, rwyHeading: 190, rwyLabel: 'RWY 19/01' },
-  { icao: 'SCFA', name: 'Andrés Sabella', city: 'Antofagasta', regionCode: 'II', lat: -23.4445, lon: -70.4451, rwyHeading: 190, rwyLabel: 'RWY 19/01' },
-  { icao: 'SCEL', name: 'Arturo Merino Benítez', city: 'Santiago', regionCode: 'RM', lat: -33.3930, lon: -70.7858, rwyHeading: 170, rwyLabel: 'RWY 17L/35R' },
-  { icao: 'SCIE', name: 'Carriel Sur', city: 'Concepción', regionCode: 'VIII', lat: -36.7727, lon: -73.0631, rwyHeading: 20, rwyLabel: 'RWY 02/20' },
-  { icao: 'SCTE', name: 'El Tepual', city: 'Puerto Montt', regionCode: 'X', lat: -41.4389, lon: -73.0940, rwyHeading: 170, rwyLabel: 'RWY 17/35' },
-  { icao: 'SCCI', name: 'Carlos Ibáñez del Campo', city: 'Punta Arenas', regionCode: 'XII', lat: -53.0026, lon: -70.8546, rwyHeading: 250, rwyLabel: 'RWY 25/07' },
+  { icao: 'SCAR', name: 'Chacalluta Intl', city: 'Arica', regionCode: 'XV', lat: -18.3485, lon: -70.3387, rwyHeading: 20, rwyLabel: 'RWY 02/20', ilsFreq: '109.90 MHz' },
+  { icao: 'SCDA', name: 'Diego Aracena', city: 'Iquique', regionCode: 'I', lat: -20.5352, lon: -70.1813, rwyHeading: 190, rwyLabel: 'RWY 19/01', ilsFreq: '110.30 MHz' },
+  { icao: 'SCFA', name: 'Andrés Sabella', city: 'Antofagasta', regionCode: 'II', lat: -23.4445, lon: -70.4451, rwyHeading: 190, rwyLabel: 'RWY 19/01', ilsFreq: '110.70 MHz' },
+  { icao: 'SCEL', name: 'Arturo Merino Benítez', city: 'Santiago', regionCode: 'RM', lat: -33.3930, lon: -70.7858, rwyHeading: 170, rwyLabel: 'RWY 17L/35R', ilsFreq: '111.50 MHz' },
+  { icao: 'SCIE', name: 'Carriel Sur', city: 'Concepción', regionCode: 'VIII', lat: -36.7727, lon: -73.0631, rwyHeading: 20, rwyLabel: 'RWY 02/20', ilsFreq: '109.50 MHz' },
+  { icao: 'SCTE', name: 'El Tepual', city: 'Puerto Montt', regionCode: 'X', lat: -41.4389, lon: -73.0940, rwyHeading: 170, rwyLabel: 'RWY 17/35', ilsFreq: '110.10 MHz' },
+  { icao: 'SCCI', name: 'Carlos Ibáñez del Campo', city: 'Punta Arenas', regionCode: 'XII', lat: -53.0026, lon: -70.8546, rwyHeading: 250, rwyLabel: 'RWY 25/07', ilsFreq: '109.90 MHz' },
 ];
 
 interface AircraftSpec {
@@ -159,7 +162,7 @@ const AIRCRAFT_MODELS: Record<AircraftId, AircraftSpec> = {
     propulsionLabel: 'PROPULSIÓN HIDRÓGENO (PEM 700 BAR)',
     fuelLabel: 'PRESIÓN TANQUE H2',
     accentColor: '#0ea5e9',
-    bodyColor: 0xe2e8f0,
+    bodyColor: 0xf1f5f9,
     svgPath: 'M12 2L15 10L22 14L14 15L13 21L12 19L11 21L10 15L2 14L9 10L12 2Z',
   },
   SR_71: {
@@ -237,14 +240,14 @@ const MAP_LAYERS: Record<MapLayerId, { label: string; url: string; attribution: 
 };
 
 const CAMERAS: { id: CameraId; short: string; label: string; sensor: string; basePan: number }[] = [
-  { id: 'CAM8_EXTERNA', short: '1. PERSECUCIÓN', label: 'CAM 01 // VISTA EXTERNA MSFS 360°', sensor: 'CHASE CAM 360°', basePan: 18 },
-  { id: 'CAM1_PROA', short: '2. PROA HUD', label: 'CAM 02 // PROA 360° HUD', sensor: '4K 360° WIDE', basePan: 0 },
-  { id: 'CAM2_GIMBAL', short: '3. GIMBAL EO', label: 'CAM 03 // TORRETA EO 360°', sensor: '30X OPT 360°', basePan: 0 },
-  { id: 'CAM3_NADIR', short: '4. NADIR', label: 'CAM 04 // CENITAL NADIR 360°', sensor: 'ORTOFOTO LIVE', basePan: 0 },
-  { id: 'CAM4_FLIR', short: '5. FLIR IR', label: 'CAM 05 // TÉRMICA LWIR 360°', sensor: 'FLIR 360° IR', basePan: 0 },
-  { id: 'CAM5_ALA_IZQ', short: '6. ALA IZQ', label: 'CAM 06 // ENCASTRE ALA BABOR 360°', sensor: 'WING-L 360°', basePan: -75 },
-  { id: 'CAM6_ALA_DER', short: '7. ALA DER', label: 'CAM 07 // ENCASTRE ALA ESTRIBOR 360°', sensor: 'WING-R 360°', basePan: 75 },
-  { id: 'CAM7_VTAIL', short: '8. COLA V', label: 'CAM 08 // EMPENAJE DORSAL 360°', sensor: 'TAIL-CAM 360°', basePan: 180 },
+  { id: 'CAM8_EXTERNA', short: '1. MSFS 4K', label: 'CAM 01 // PERSECUCIÓN EXTERNA MSFS 4K', sensor: 'ULTRA 4K 360°', basePan: 18 },
+  { id: 'CAM1_PROA', short: '2. COCKPIT HUD', label: 'CAM 02 // CABINA / PROA HUD 4K', sensor: '4K WIDE HUD', basePan: 0 },
+  { id: 'CAM2_GIMBAL', short: '3. GIMBAL EO', label: 'CAM 03 // TORRETA ÓPTICA 30X 360°', sensor: '30X EO 4K', basePan: 0 },
+  { id: 'CAM3_NADIR', short: '4. NADIR', label: 'CAM 04 // CENITAL NADIR ORTOFOTO', sensor: 'NADIR 4K', basePan: 0 },
+  { id: 'CAM4_FLIR', short: '5. FLIR IR', label: 'CAM 05 // VISIÓN TÉRMICA INFRARROJA', sensor: 'LWIR FLIR', basePan: 0 },
+  { id: 'CAM5_ALA_IZQ', short: '6. ALA IZQ', label: 'CAM 06 // ALA BABOR / HORIZONTE', sensor: 'WING-L 4K', basePan: -75 },
+  { id: 'CAM6_ALA_DER', short: '7. ALA DER', label: 'CAM 07 // ALA ESTRIBOR / HORIZONTE', sensor: 'WING-R 4K', basePan: 75 },
+  { id: 'CAM7_VTAIL', short: '8. COLA V', label: 'CAM 08 // EMPENAJE DORSAL 360°', sensor: 'TAIL 4K', basePan: 180 },
 ];
 
 const DEFAULT_PANEL_ORDER: PanelId[] = ['MAP', 'CAMERAS', 'AI_SAFETY', 'FLIGHT_OPS', 'PROPULSION', 'BLACKBOX'];
@@ -257,50 +260,58 @@ const DEFAULT_PANEL_SPANS: Record<PanelId, 1 | 2> = {
   BLACKBOX: 1,
 };
 
-function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE.Group {
+function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean, flapsDeg: number): THREE.Group {
   const root = new THREE.Group();
 
-  const hullMat = new THREE.MeshStandardMaterial({
+  const hullMat = new THREE.MeshPhysicalMaterial({
     color: spec.bodyColor,
-    roughness: spec.id === 'SR_71' ? 0.4 : 0.25,
+    roughness: spec.id === 'SR_71' ? 0.38 : 0.22,
     metalness: 0.78,
+    clearcoat: 0.65,
+    clearcoatRoughness: 0.18,
   });
   const stripeMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(spec.accentColor),
-    roughness: 0.3,
-    metalness: 0.5,
+    roughness: 0.25,
+    metalness: 0.55,
   });
-  const canopyMat = new THREE.MeshStandardMaterial({
-    color: 0x0f172a,
-    emissive: 0x1e293b,
-    emissiveIntensity: 0.3,
-    roughness: 0.1,
-    metalness: 0.95,
+  const canopyMat = new THREE.MeshPhysicalMaterial({
+    color: 0x090d16,
+    emissive: 0x0f172a,
+    emissiveIntensity: 0.25,
+    roughness: 0.08,
+    metalness: 0.92,
+    clearcoat: 1.0,
   });
 
   if (spec.id === 'H2_VALKYRIE') {
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.32, 7.8, 24), hullMat);
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.32, 7.8, 32), hullMat);
     fuselage.rotation.x = Math.PI / 2;
     root.add(fuselage);
 
-    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.34, 4.2, 24), stripeMat);
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(0.47, 0.34, 4.2, 32), stripeMat);
     stripe.rotation.x = Math.PI / 2;
     stripe.position.set(0, 0.02, 0.2);
     root.add(stripe);
 
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.46, 20, 16), hullMat);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.46, 24, 20), hullMat);
     nose.scale.set(1, 0.85, 2.2);
     nose.position.set(0, -0.04, -4.1);
     root.add(nose);
 
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.38, 18, 14), canopyMat);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.38, 24, 18), canopyMat);
     canopy.scale.set(0.95, 0.72, 2.3);
     canopy.position.set(0, 0.34, -1.9);
     root.add(canopy);
 
+    // Alas invertidas con winglets y superficies de flaps articuladas
     const wingL = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.15), hullMat);
     wingL.position.set(-3.6, 0.06, -0.35);
     wingL.rotation.y = -0.22;
+    const flapL = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 0.35), stripeMat);
+    flapL.position.set(-2.4, 0.02 - flapsDeg * 0.006, 0.35);
+    flapL.rotation.x = (flapsDeg * Math.PI) / 180;
+
     const wingletL = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.75), stripeMat);
     wingletL.position.set(-7.1, 0.45, -1.1);
     wingletL.rotation.z = 0.25;
@@ -308,10 +319,14 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     const wingR = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.1, 1.15), hullMat);
     wingR.position.set(3.6, 0.06, -0.35);
     wingR.rotation.y = 0.22;
+    const flapR = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.06, 0.35), stripeMat);
+    flapR.position.set(2.4, 0.02 - flapsDeg * 0.006, 0.35);
+    flapR.rotation.x = (flapsDeg * Math.PI) / 180;
+
     const wingletR = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.85, 0.75), stripeMat);
     wingletR.position.set(7.1, 0.45, -1.1);
     wingletR.rotation.z = -0.25;
-    root.add(wingL, wingletL, wingR, wingletR);
+    root.add(wingL, flapL, wingletL, wingR, flapR, wingletR);
 
     const vL = new THREE.Mesh(new THREE.BoxGeometry(0.09, 1.95, 0.95), hullMat);
     vL.position.set(-0.78, 0.75, 3.3);
@@ -321,7 +336,7 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     vR.rotation.z = -0.52;
     root.add(vL, vR);
   } else if (spec.id === 'SR_71') {
-    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.42, 11.4, 20), hullMat);
+    const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.42, 11.4, 24), hullMat);
     fuselage.rotation.x = Math.PI / 2;
     root.add(fuselage);
 
@@ -329,12 +344,12 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     chine.position.set(0, 0, -0.4);
     root.add(chine);
 
-    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.46, 2.9, 20), hullMat);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.46, 2.9, 24), hullMat);
     nose.rotation.x = -Math.PI / 2;
     nose.position.set(0, 0, -7.0);
     root.add(nose);
 
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.36, 16, 12), canopyMat);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.36, 20, 14), canopyMat);
     canopy.scale.set(0.85, 0.65, 2.4);
     canopy.position.set(0, 0.36, -3.5);
     root.add(canopy);
@@ -346,10 +361,10 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     root.add(deltaWing);
 
     [-2.1, 2.1].forEach((nx) => {
-      const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.44, 5.4, 20), hullMat);
+      const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.48, 0.44, 5.4, 24), hullMat);
       nacelle.rotation.x = Math.PI / 2;
       nacelle.position.set(nx, 0.05, 1.2);
-      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.2, 16), stripeMat);
+      const spike = new THREE.Mesh(new THREE.ConeGeometry(0.28, 1.2, 20), stripeMat);
       spike.rotation.x = -Math.PI / 2;
       spike.position.set(nx, 0.05, -2.0);
 
@@ -370,7 +385,7 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     nose.position.set(0, -0.04, -5.3);
     root.add(nose);
 
-    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.54, 18, 14), canopyMat);
+    const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.54, 22, 16), canopyMat);
     canopy.scale.set(0.95, 0.72, 2.5);
     canopy.position.set(0, 0.45, -2.2);
     root.add(canopy);
@@ -392,24 +407,27 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
     });
   }
 
-  const navRed = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
+  // Luces estroboscópicas y de navegación de alta intensidad
+  const navRed = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), new THREE.MeshBasicMaterial({ color: 0xef4444 }));
   navRed.position.set(-5.2, 0.08, 0.1);
-  const navGreen = new THREE.Mesh(new THREE.SphereGeometry(0.13, 8, 8), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+  const navGreen = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 10), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
   navGreen.position.set(5.2, 0.08, 0.1);
-  root.add(navRed, navGreen);
+  const beaconTop = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 10), new THREE.MeshBasicMaterial({ color: 0xf87171 }));
+  beaconTop.position.set(0, 0.52, 0.4);
+  root.add(navRed, navGreen, beaconTop);
 
   if (gearDown) {
-    const strutMat = new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.9, roughness: 0.2 });
-    const tireMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.9 });
+    const strutMat = new THREE.MeshStandardMaterial({ color: 0xe4e4e7, metalness: 0.92, roughness: 0.18 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.88 });
 
     [
       [0, -0.75, -2.8],
       [-1.15, -0.75, 0.8],
       [1.15, -0.75, 0.8],
     ].forEach(([gx, gy, gz]) => {
-      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.85, 8), strutMat);
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.85, 10), strutMat);
       strut.position.set(gx, gy + 0.3, gz);
-      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.14, 14), tireMat);
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.14, 16), tireMat);
       wheel.rotation.z = Math.PI / 2;
       wheel.position.set(gx, gy - 0.12, gz);
       root.add(strut, wheel);
@@ -421,73 +439,73 @@ function buildDetailedAircraftMesh(spec: AircraftSpec, gearDown: boolean): THREE
 
 function createRunwayTexture(rwyLabel: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 2048;
+  canvas.width = 1024;
+  canvas.height = 4096;
   const ctx = canvas.getContext('2d')!;
 
   ctx.fillStyle = '#18181b';
-  ctx.fillRect(0, 0, 512, 2048);
+  ctx.fillRect(0, 0, 1024, 4096);
 
-  for (let i = 0; i < 14000; i++) {
+  for (let i = 0; i < 32000; i++) {
     ctx.fillStyle = Math.random() > 0.5 ? 'rgba(255,255,255,0.035)' : 'rgba(0,0,0,0.22)';
-    ctx.fillRect(Math.random() * 512, Math.random() * 2048, 2, 2);
+    ctx.fillRect(Math.random() * 1024, Math.random() * 4096, 3, 3);
   }
 
   ctx.fillStyle = '#e4e4e7';
-  ctx.fillRect(28, 0, 10, 2048);
-  ctx.fillRect(474, 0, 10, 2048);
+  ctx.fillRect(56, 0, 18, 4096);
+  ctx.fillRect(950, 0, 18, 4096);
 
   ctx.strokeStyle = '#facc15';
-  ctx.lineWidth = 10;
-  for (let y = 1860; y <= 1980; y += 55) {
+  ctx.lineWidth = 18;
+  for (let y = 3720; y <= 3960; y += 110) {
     ctx.beginPath();
-    ctx.moveTo(120, y + 35);
-    ctx.lineTo(256, y);
-    ctx.lineTo(392, y + 35);
+    ctx.moveTo(240, y + 70);
+    ctx.lineTo(512, y);
+    ctx.lineTo(784, y + 70);
     ctx.stroke();
   }
 
   ctx.fillStyle = '#f4f4f5';
-  for (let x = 64; x <= 424; x += 48) {
-    if (Math.abs(x - 246) < 28) continue;
-    ctx.fillRect(x, 1690, 24, 130);
-    ctx.fillRect(x, 180, 24, 130);
+  for (let x = 128; x <= 848; x += 96) {
+    if (Math.abs(x - 492) < 56) continue;
+    ctx.fillRect(x, 3380, 48, 260);
+    ctx.fillRect(x, 360, 48, 260);
   }
 
   ctx.save();
   ctx.fillStyle = '#f4f4f5';
-  ctx.font = 'bold 46px monospace';
+  ctx.font = 'bold 92px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(rwyLabel.replace('RWY ', '').split('/')[0], 256, 1620);
+  ctx.fillText(rwyLabel.replace('RWY ', '').split('/')[0], 512, 3240);
   ctx.restore();
 
   ctx.fillStyle = 'rgba(9, 9, 11, 0.72)';
-  ctx.fillRect(150, 1320, 75, 320);
-  ctx.fillRect(287, 1320, 75, 320);
+  ctx.fillRect(300, 2640, 150, 640);
+  ctx.fillRect(574, 2640, 150, 640);
 
-  for (let y = 340; y < 1560; y += 90) {
+  for (let y = 680; y < 3120; y += 180) {
     ctx.fillStyle = '#f4f4f5';
-    ctx.fillRect(250, y, 12, 52);
+    ctx.fillRect(500, y, 24, 104);
   }
 
   const tex = new THREE.CanvasTexture(canvas);
-  tex.anisotropy = 8;
+  tex.anisotropy = 16;
   return tex;
 }
 
 function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 1024;
+  canvas.height = 1024;
   const ctx = canvas.getContext('2d')!;
 
   ctx.fillStyle = isFlir ? '#27272a' : region.groundCss;
-  ctx.fillRect(0, 0, 512, 512);
+  ctx.fillRect(0, 0, 1024, 1024);
 
-  for (let i = 0; i < 6500; i++) {
-    const x = Math.random() * 512;
-    const y = Math.random() * 512;
-    const r = 2 + Math.random() * 14;
+  for (let i = 0; i < 14000; i++) {
+    const x = Math.random() * 1024;
+    const y = Math.random() * 1024;
+    const r = 3 + Math.random() * 22;
     if (isFlir) {
       ctx.fillStyle = Math.random() > 0.5 ? 'rgba(220,220,225,0.06)' : 'rgba(10,10,12,0.12)';
     } else if (region.biome === 'ATACAMA_DESERT') {
@@ -504,11 +522,21 @@ function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean):
     ctx.fill();
   }
 
+  // Red vial iluminada y trazado urbano costero/valle estilo Flight Simulator
+  ctx.strokeStyle = isFlir ? 'rgba(255,255,255,0.12)' : 'rgba(253, 224, 71, 0.22)';
+  ctx.lineWidth = 2;
+  for (let road = 0; road < 18; road++) {
+    ctx.beginPath();
+    ctx.moveTo(Math.random() * 1024, 0);
+    ctx.lineTo(Math.random() * 1024, 1024);
+    ctx.stroke();
+  }
+
   if (region.biome === 'PATAGONIA_FJORDS' || region.biome === 'SOUTHERN_LAKES') {
     ctx.fillStyle = isFlir ? '#18181b' : '#0c4a6e';
-    for (let l = 0; l < 6; l++) {
+    for (let l = 0; l < 8; l++) {
       ctx.beginPath();
-      ctx.ellipse(Math.random() * 512, Math.random() * 512, 48 + Math.random() * 60, 18 + Math.random() * 24, Math.random() * Math.PI, 0, Math.PI * 2);
+      ctx.ellipse(Math.random() * 1024, Math.random() * 1024, 80 + Math.random() * 110, 30 + Math.random() * 44, Math.random() * Math.PI, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -516,10 +544,12 @@ function createRegionalTerrainTexture(region: ChileRegionInfo, isFlir: boolean):
   const tex = new THREE.CanvasTexture(canvas);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(18, 18);
+  tex.repeat.set(20, 20);
+  tex.anisotropy = 16;
   return tex;
 }
 
+// Instrumentación completa Microsoft Flight Simulator en las 4 esquinas + barra de estado
 function drawMsfsInstruments(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -528,58 +558,79 @@ function drawMsfsInstruments(
     heading: number;
     course: number;
     speedKt: number;
+    tasKt: number;
     altFt: number;
     vsFpm: number;
     throttlePct: number;
     fuelPct: number;
     aoaDeg: number;
     gearDown: boolean;
+    flapsDeg: number;
+    trimPct: number;
     pitchDeg: number;
+    rollDeg: number;
   }
 ) {
-  const { heading, course, speedKt, altFt, vsFpm, throttlePct, fuelPct, aoaDeg, gearDown, pitchDeg } = params;
+  const {
+    heading,
+    course,
+    speedKt,
+    tasKt,
+    altFt,
+    vsFpm,
+    throttlePct,
+    fuelPct,
+    aoaDeg,
+    gearDown,
+    flapsDeg,
+    trimPct,
+    pitchDeg,
+    rollDeg,
+  } = params;
 
-  // Indicador central de cabeceo (Pitch Reference Bar)
-  const pitchOffsetY = Math.max(-50, Math.min(50, pitchDeg * 3));
+  // Horizonte / Referencia central de actitud (Pitch & Roll)
+  const pitchOffsetY = Math.max(-60, Math.min(60, pitchDeg * 3.2));
   ctx.save();
-  ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
-  ctx.lineWidth = 1.5;
+  ctx.translate(w / 2, h / 2 + pitchOffsetY);
+  ctx.rotate((-rollDeg * Math.PI) / 180);
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.45)';
+  ctx.lineWidth = 1.4;
   ctx.beginPath();
-  ctx.moveTo(w / 2 - 42, h / 2 + pitchOffsetY);
-  ctx.lineTo(w / 2 - 14, h / 2 + pitchOffsetY);
-  ctx.moveTo(w / 2 + 14, h / 2 + pitchOffsetY);
-  ctx.lineTo(w / 2 + 42, h / 2 + pitchOffsetY);
+  ctx.moveTo(-48, 0);
+  ctx.lineTo(-14, 0);
+  ctx.moveTo(14, 0);
+  ctx.lineTo(48, 0);
   ctx.stroke();
   ctx.restore();
 
   // 1. SUPERIOR IZQUIERDA: BRÚJULA CIRCULAR GIRATORIA (HSI / COMPASS ROSE)
-  const cx = 66;
-  const cy = 68;
-  const r = 46;
+  const cx = 74;
+  const cy = 76;
+  const r = 50;
 
   ctx.save();
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.72)';
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.74)';
   ctx.beginPath();
   ctx.arc(cx, cy, r + 4, 0, Math.PI * 2);
   ctx.fill();
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
   ctx.lineWidth = 1.5;
   ctx.stroke();
 
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.88)';
-  ctx.fillRect(cx - 24, cy - r - 18, 48, 16);
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.92)';
+  ctx.fillRect(cx - 26, cy - r - 20, 52, 17);
   ctx.strokeStyle = '#38bdf8';
-  ctx.strokeRect(cx - 24, cy - r - 18, 48, 16);
+  ctx.strokeRect(cx - 26, cy - r - 20, 52, 17);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 11px monospace';
+  ctx.font = 'bold 12px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(heading)}°`, cx, cy - r - 6);
+  ctx.fillText(`${Math.round(heading)}°`, cx, cy - r - 7);
 
-  ctx.font = 'bold 8px monospace';
+  ctx.font = 'bold 9px monospace';
   ctx.fillStyle = '#38bdf8';
-  ctx.fillText(`HDG ${Math.round(heading)}°`, cx - 44, cy - r - 6);
+  ctx.fillText(`HDG ${Math.round(heading)}°`, cx - 48, cy - r - 7);
   ctx.fillStyle = '#e879f9';
-  ctx.fillText(`CRS ${Math.round(course)}°`, cx + 44, cy - r - 6);
+  ctx.fillText(`CRS ${Math.round(course)}°`, cx + 48, cy - r - 7);
 
   ctx.translate(cx, cy);
   ctx.rotate((-heading * Math.PI) / 180);
@@ -587,9 +638,9 @@ function drawMsfsInstruments(
   for (let deg = 0; deg < 360; deg += 10) {
     const rad = (deg * Math.PI) / 180;
     const isMajor = deg % 30 === 0;
-    const inner = isMajor ? r - 9 : r - 5;
-    ctx.strokeStyle = deg === 0 ? '#ef4444' : 'rgba(255,255,255,0.75)';
-    ctx.lineWidth = isMajor ? 1.5 : 1;
+    const inner = isMajor ? r - 10 : r - 5;
+    ctx.strokeStyle = deg === 0 ? '#ef4444' : 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = isMajor ? 1.6 : 1;
     ctx.beginPath();
     ctx.moveTo(Math.sin(rad) * inner, -Math.cos(rad) * inner);
     ctx.lineTo(Math.sin(rad) * r, -Math.cos(rad) * r);
@@ -597,10 +648,10 @@ function drawMsfsInstruments(
 
     if (isMajor) {
       ctx.save();
-      ctx.translate(Math.sin(rad) * (r - 17), -Math.cos(rad) * (r - 17));
+      ctx.translate(Math.sin(rad) * (r - 19), -Math.cos(rad) * (r - 19));
       ctx.rotate(rad);
       ctx.fillStyle = deg === 0 ? '#f87171' : '#f8fafc';
-      ctx.font = 'bold 9px sans-serif';
+      ctx.font = 'bold 10px sans-serif';
       const label = deg === 0 ? 'N' : deg === 90 ? 'E' : deg === 180 ? 'S' : deg === 270 ? 'W' : `${deg / 10}`;
       ctx.fillText(label, 0, 3);
       ctx.restore();
@@ -610,7 +661,7 @@ function drawMsfsInstruments(
   const crsRad = (course * Math.PI) / 180;
   ctx.rotate(crsRad);
   ctx.strokeStyle = '#e879f9';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
   ctx.beginPath();
   ctx.moveTo(0, -r + 6);
   ctx.lineTo(0, r - 6);
@@ -618,185 +669,191 @@ function drawMsfsInstruments(
   ctx.restore();
 
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 1.8;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.moveTo(cx, cy - 8);
-  ctx.lineTo(cx, cy + 8);
-  ctx.moveTo(cx - 8, cy);
-  ctx.lineTo(cx + 8, cy);
+  ctx.moveTo(cx, cy - 9);
+  ctx.lineTo(cx, cy + 9);
+  ctx.moveTo(cx - 9, cy);
+  ctx.lineTo(cx + 9, cy);
   ctx.stroke();
 
-  // 2. INFERIOR IZQUIERDA: CINTA AIRSPEED + ENGINE % + FUEL + AOA
-  const blX = 12;
-  const blY = h - 122;
+  // 2. INFERIOR IZQUIERDA: AIRSPEED + TAS + ENGINE % + FUEL + AOA
+  const blX = 14;
+  const blY = h - 134;
 
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(blX, blY, 54, 110);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(blX, blY, 54, 110);
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(blX, blY, 62, 120);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(blX, blY, 62, 120);
 
   ctx.fillStyle = '#38bdf8';
-  ctx.font = 'bold 8px sans-serif';
+  ctx.font = 'bold 9px sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('AIRSPEED', blX + 27, blY + 10);
+  ctx.fillText('AIRSPEED', blX + 31, blY + 11);
 
   ctx.save();
   ctx.beginPath();
-  ctx.rect(blX, blY + 14, 54, 82);
+  ctx.rect(blX, blY + 15, 62, 86);
   ctx.clip();
 
   const baseSpd = Math.floor(speedKt / 10) * 10;
   for (let s = baseSpd - 30; s <= baseSpd + 30; s += 10) {
     if (s < 0) continue;
-    const yOffset = blY + 55 - (s - speedKt) * 1.4;
+    const yOffset = blY + 58 - (s - speedKt) * 1.45;
     ctx.strokeStyle = '#94a3b8';
     ctx.beginPath();
-    ctx.moveTo(blX + 42, yOffset);
-    ctx.lineTo(blX + 54, yOffset);
+    ctx.moveTo(blX + 48, yOffset);
+    ctx.lineTo(blX + 62, yOffset);
     ctx.stroke();
     ctx.fillStyle = '#e2e8f0';
     ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'right';
-    ctx.fillText(`${s}`, blX + 39, yOffset + 3);
+    ctx.fillText(`${s}`, blX + 45, yOffset + 3);
   }
   ctx.restore();
 
   ctx.fillStyle = '#000000';
-  ctx.fillRect(blX + 2, blY + 45, 46, 20);
+  ctx.fillRect(blX + 3, blY + 48, 52, 21);
   ctx.strokeStyle = '#ffffff';
-  ctx.strokeRect(blX + 2, blY + 45, 46, 20);
+  ctx.strokeRect(blX + 3, blY + 48, 52, 21);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 12px monospace';
+  ctx.font = 'bold 13px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(speedKt)}`, blX + 25, blY + 59);
+  ctx.fillText(`${Math.round(speedKt)}`, blX + 29, blY + 63);
 
   ctx.fillStyle = '#94a3b8';
   ctx.font = '8px monospace';
-  ctx.fillText(`KT`, blX + 27, blY + 105);
+  ctx.fillText(`TAS ${Math.round(tasKt)}KT`, blX + 31, blY + 114);
 
-  const engX = blX + 60;
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(engX, blY + 18, 66, 92);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(engX, blY + 18, 66, 92);
+  // Reloj ENGINE %
+  const engX = blX + 68;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(engX, blY + 20, 74, 100);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(engX, blY + 20, 74, 100);
   ctx.fillStyle = '#e2e8f0';
-  ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('ENGINE', engX + 33, blY + 29);
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('ENGINE', engX + 37, blY + 32);
 
-  const dialCx = engX + 33;
-  const dialCy = blY + 62;
+  const dialCx = engX + 37;
+  const dialCy = blY + 68;
   ctx.strokeStyle = '#22c55e';
-  ctx.lineWidth = 4;
+  ctx.lineWidth = 4.5;
   ctx.beginPath();
-  ctx.arc(dialCx, dialCy, 22, Math.PI * 0.75, Math.PI * 0.75 + (Math.PI * 1.5 * Math.min(100, throttlePct)) / 100);
+  ctx.arc(dialCx, dialCy, 24, Math.PI * 0.75, Math.PI * 0.75 + (Math.PI * 1.5 * Math.min(100, throttlePct)) / 100);
   ctx.stroke();
 
   const needleAng = Math.PI * 0.75 + (Math.PI * 1.5 * Math.min(100, throttlePct)) / 100;
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
   ctx.beginPath();
   ctx.moveTo(dialCx, dialCy);
-  ctx.lineTo(dialCx + Math.cos(needleAng) * 20, dialCy + Math.sin(needleAng) * 20);
+  ctx.lineTo(dialCx + Math.cos(needleAng) * 22, dialCy + Math.sin(needleAng) * 22);
   ctx.stroke();
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 10px monospace';
-  ctx.fillText(`${Math.round(throttlePct)}%`, dialCx, blY + 102);
+  ctx.font = 'bold 11px monospace';
+  ctx.fillText(`${Math.round(throttlePct)}%`, dialCx, blY + 112);
 
-  const fuelX = engX + 70;
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(fuelX, blY + 18, 34, 92);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(fuelX, blY + 18, 34, 92);
+  // Barra FUEL
+  const fuelX = engX + 78;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(fuelX, blY + 20, 38, 100);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(fuelX, blY + 20, 38, 100);
   ctx.fillStyle = '#e2e8f0';
-  ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('FUEL', fuelX + 17, blY + 29);
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('FUEL', fuelX + 19, blY + 32);
 
-  const barH = 54;
+  const barH = 58;
   const fillH = (barH * Math.max(0, Math.min(100, fuelPct))) / 100;
   ctx.fillStyle = '#1e293b';
-  ctx.fillRect(fuelX + 12, blY + 35, 10, barH);
+  ctx.fillRect(fuelX + 13, blY + 39, 12, barH);
   ctx.fillStyle = fuelPct > 25 ? '#22c55e' : '#ef4444';
-  ctx.fillRect(fuelX + 12, blY + 35 + (barH - fillH), 10, fillH);
+  ctx.fillRect(fuelX + 13, blY + 39 + (barH - fillH), 12, fillH);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 9px monospace';
-  ctx.fillText(`${Math.round(fuelPct)}%`, fuelX + 17, blY + 102);
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`${Math.round(fuelPct)}%`, fuelX + 19, blY + 112);
 
-  const aoaX = fuelX + 38;
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(aoaX, blY + 18, 32, 92);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(aoaX, blY + 18, 32, 92);
+  // Barra AOA
+  const aoaX = fuelX + 42;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(aoaX, blY + 20, 36, 100);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(aoaX, blY + 20, 36, 100);
   ctx.fillStyle = '#e2e8f0';
-  ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('AOA', aoaX + 16, blY + 29);
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('AOA', aoaX + 18, blY + 32);
   ctx.fillStyle = '#38bdf8';
   ctx.font = 'bold 10px monospace';
-  ctx.fillText(`${aoaDeg.toFixed(1)}°`, aoaX + 16, blY + 68);
+  ctx.fillText(`${aoaDeg.toFixed(1)}°`, aoaX + 18, blY + 74);
 
-  // 3. INFERIOR DERECHA: FLAPS / GEAR + ALTITUDE + VS
-  const brX = w - 144;
-  const brY = h - 122;
+  // 3. INFERIOR DERECHA: FLAPS + TRIM + ALTITUDE + VS
+  const brX = w - 166;
+  const brY = h - 134;
 
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(brX, brY + 18, 52, 92);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(brX, brY + 18, 52, 92);
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(brX, brY + 20, 64, 100);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(brX, brY + 20, 64, 100);
   ctx.fillStyle = '#e2e8f0';
   ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('GEAR/FLP', brX + 26, brY + 29);
+  ctx.fillText('FLAPS  TRIM', brX + 32, brY + 32);
 
   ctx.fillStyle = gearDown ? '#f59e0b' : '#22c55e';
   ctx.font = 'bold 10px monospace';
-  ctx.fillText(gearDown ? 'DN' : 'UP', brX + 26, brY + 55);
+  ctx.fillText(`${flapsDeg}°`, brX + 18, brY + 72);
   ctx.fillStyle = '#38bdf8';
-  ctx.fillText(gearDown ? 'FLP 15°' : 'FLP 0°', brX + 26, brY + 82);
+  ctx.fillText(`${trimPct}%`, brX + 48, brY + 72);
+  ctx.fillStyle = '#94a3b8';
+  ctx.font = '8px monospace';
+  ctx.fillText(gearDown ? 'GEAR DN' : 'GEAR UP', brX + 32, brY + 112);
 
-  const altX = brX + 56;
-  ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
-  ctx.fillRect(altX, brY, 76, 110);
-  ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
-  ctx.strokeRect(altX, brY, 76, 110);
+  const altX = brX + 68;
+  ctx.fillStyle = 'rgba(9, 13, 22, 0.80)';
+  ctx.fillRect(altX, brY, 84, 120);
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.5)';
+  ctx.strokeRect(altX, brY, 84, 120);
 
   ctx.fillStyle = '#38bdf8';
-  ctx.font = 'bold 8px sans-serif';
-  ctx.fillText('ALTITUDE', altX + 28, brY + 10);
-  ctx.fillText('VS', altX + 64, brY + 10);
+  ctx.font = 'bold 9px sans-serif';
+  ctx.fillText('ALTITUDE', altX + 30, brY + 11);
+  ctx.fillText('VS', altX + 70, brY + 11);
 
   ctx.save();
   ctx.beginPath();
-  ctx.rect(altX, brY + 14, 54, 82);
+  ctx.rect(altX, brY + 15, 60, 86);
   ctx.clip();
 
   const baseAlt = Math.floor(altFt / 100) * 100;
   for (let a = baseAlt - 300; a <= baseAlt + 300; a += 100) {
     if (a < 0) continue;
-    const yOffset = brY + 55 - (a - altFt) * 0.14;
+    const yOffset = brY + 58 - (a - altFt) * 0.145;
     ctx.strokeStyle = '#94a3b8';
     ctx.beginPath();
     ctx.moveTo(altX, yOffset);
-    ctx.lineTo(altX + 8, yOffset);
+    ctx.lineTo(altX + 9, yOffset);
     ctx.stroke();
     ctx.fillStyle = '#e2e8f0';
-    ctx.font = 'bold 9px monospace';
+    ctx.font = 'bold 10px monospace';
     ctx.textAlign = 'left';
-    ctx.fillText(`${a}`, altX + 11, yOffset + 3);
+    ctx.fillText(`${a}`, altX + 12, yOffset + 3);
   }
   ctx.restore();
 
   ctx.fillStyle = '#000000';
-  ctx.fillRect(altX + 4, brY + 45, 50, 20);
+  ctx.fillRect(altX + 4, brY + 48, 54, 21);
   ctx.strokeStyle = '#ffffff';
-  ctx.strokeRect(altX + 4, brY + 45, 50, 20);
+  ctx.strokeRect(altX + 4, brY + 48, 54, 21);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 10px monospace';
+  ctx.font = 'bold 11px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(`${Math.round(altFt)}`, altX + 29, brY + 59);
+  ctx.fillText(`${Math.round(altFt)}`, altX + 31, brY + 63);
 
   ctx.fillStyle = '#94a3b8';
-  ctx.font = '8px monospace';
-  ctx.fillText(`${Math.round(vsFpm)}`, altX + 64, brY + 58);
-  ctx.fillText('29.92 IN', altX + 38, brY + 105);
+  ctx.font = '9px monospace';
+  ctx.fillText(`${Math.round(vsFpm)}`, altX + 71, brY + 62);
+  ctx.fillText('29.92 IN', altX + 42, brY + 114);
 }
 
 function FlightSim3DViewport({
@@ -804,7 +861,7 @@ function FlightSim3DViewport({
   aircraft,
   region,
   airport,
-  flightPhase,
+  weather,
   simAltM,
   simSpeedKmh,
   simPitchDeg,
@@ -812,6 +869,8 @@ function FlightSim3DViewport({
   simHeadingDeg,
   runwayProgress,
   gearDown,
+  flapsDeg,
+  trimPct,
   panOffset,
   tiltOffset,
   compact = false,
@@ -820,7 +879,7 @@ function FlightSim3DViewport({
   aircraft: AircraftSpec;
   region: ChileRegionInfo;
   airport: AirportSpec;
-  flightPhase: FlightPhase;
+  weather: WeatherPreset;
   simAltM: number;
   simSpeedKmh: number;
   simPitchDeg: number;
@@ -828,6 +887,8 @@ function FlightSim3DViewport({
   simHeadingDeg: number;
   runwayProgress: number;
   gearDown: boolean;
+  flapsDeg: number;
+  trimPct: number;
   panOffset: number;
   tiltOffset: number;
   compact?: boolean;
@@ -839,7 +900,7 @@ function FlightSim3DViewport({
     aircraft,
     region,
     airport,
-    flightPhase,
+    weather,
     simAltM,
     simSpeedKmh,
     simPitchDeg,
@@ -847,6 +908,8 @@ function FlightSim3DViewport({
     simHeadingDeg,
     runwayProgress,
     gearDown,
+    flapsDeg,
+    trimPct,
     panOffset,
     tiltOffset,
     compact,
@@ -856,7 +919,7 @@ function FlightSim3DViewport({
     aircraft,
     region,
     airport,
-    flightPhase,
+    weather,
     simAltM,
     simSpeedKmh,
     simPitchDeg,
@@ -864,6 +927,8 @@ function FlightSim3DViewport({
     simHeadingDeg,
     runwayProgress,
     gearDown,
+    flapsDeg,
+    trimPct,
     panOffset,
     tiltOffset,
     compact,
@@ -874,40 +939,71 @@ function FlightSim3DViewport({
     if (!container) return;
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(region.fogHex, 0.00044);
+    const activeFog =
+      weather === 'NIGHT_NVG'
+        ? 0x04120a
+        : weather === 'OVERCAST_ANDES'
+        ? 0x64748b
+        : weather === 'CLEAR_DAY'
+        ? 0x7dd3fc
+        : region.fogHex;
+    scene.fog = new THREE.FogExp2(activeFog, weather === 'OVERCAST_ANDES' ? 0.00068 : 0.00042);
 
     const camera = new THREE.PerspectiveCamera(
-      camId === 'CAM2_GIMBAL' ? 30 : 60,
+      camId === 'CAM2_GIMBAL' ? 28 : 58,
       (container.clientWidth || 640) / (container.clientHeight || 400),
       0.2,
-      3800
+      4200
     );
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     renderer.setSize(container.clientWidth || 640, container.clientHeight || 400);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.18;
+    renderer.toneMappingExposure = weather === 'NIGHT_NVG' ? 1.45 : 1.18;
     container.appendChild(renderer.domElement);
 
-    const hemiLight = new THREE.HemisphereLight(0xfff3d6, 0x1e293b, 0.95);
+    const hemiLight = new THREE.HemisphereLight(
+      weather === 'NIGHT_NVG' ? 0x10b981 : 0xfff3d6,
+      0x1e293b,
+      weather === 'NIGHT_NVG' ? 0.65 : 1.05
+    );
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffcf87, 2.4);
-    sunLight.position.set(-550, 240, -900);
+    const sunLight = new THREE.DirectionalLight(
+      weather === 'GOLDEN_HOUR' ? 0xffcf87 : weather === 'NIGHT_NVG' ? 0x34d399 : 0xffffff,
+      weather === 'NIGHT_NVG' ? 0.9 : 2.5
+    );
+    sunLight.position.set(-550, weather === 'CLEAR_DAY' ? 520 : 210, -900);
     scene.add(sunLight);
 
-    const skyGeo = new THREE.SphereGeometry(2800, 32, 20);
+    const skyGeo = new THREE.SphereGeometry(3200, 36, 24);
     const skyCanvas = document.createElement('canvas');
     skyCanvas.width = 32;
     skyCanvas.height = 256;
     const sCtx = skyCanvas.getContext('2d')!;
     const sGrad = sCtx.createLinearGradient(0, 0, 0, 256);
-    sGrad.addColorStop(0.0, '#091936');
-    sGrad.addColorStop(0.32, '#2d4f80');
-    sGrad.addColorStop(0.46, '#f59e0b');
-    sGrad.addColorStop(0.51, '#fef08a');
-    sGrad.addColorStop(1.0, '#1e293b');
+    if (weather === 'NIGHT_NVG') {
+      sGrad.addColorStop(0.0, '#020617');
+      sGrad.addColorStop(0.5, '#052e16');
+      sGrad.addColorStop(1.0, '#020617');
+    } else if (weather === 'CLEAR_DAY') {
+      sGrad.addColorStop(0.0, '#0c4a6e');
+      sGrad.addColorStop(0.45, '#38bdf8');
+      sGrad.addColorStop(0.52, '#e0f2fe');
+      sGrad.addColorStop(1.0, '#1e293b');
+    } else if (weather === 'OVERCAST_ANDES') {
+      sGrad.addColorStop(0.0, '#1e293b');
+      sGrad.addColorStop(0.48, '#64748b');
+      sGrad.addColorStop(0.53, '#cbd5e1');
+      sGrad.addColorStop(1.0, '#0f172a');
+    } else {
+      sGrad.addColorStop(0.0, '#091936');
+      sGrad.addColorStop(0.32, '#2d4f80');
+      sGrad.addColorStop(0.46, '#f59e0b');
+      sGrad.addColorStop(0.51, '#fef08a');
+      sGrad.addColorStop(1.0, '#1e293b');
+    }
     sCtx.fillStyle = sGrad;
     sCtx.fillRect(0, 0, 32, 256);
     const skyDome = new THREE.Mesh(
@@ -917,37 +1013,40 @@ function FlightSim3DViewport({
     scene.add(skyDome);
 
     const sunDisc = new THREE.Mesh(
-      new THREE.CircleGeometry(68, 24),
+      new THREE.CircleGeometry(74, 28),
       new THREE.MeshBasicMaterial({ color: 0xfef9c3, fog: false })
     );
-    sunDisc.position.set(-620, 95, -2100);
+    sunDisc.position.set(-640, weather === 'CLEAR_DAY' ? 420 : 88, -2200);
     sunDisc.lookAt(0, 0, 0);
+    sunDisc.visible = weather !== 'NIGHT_NVG' && weather !== 'OVERCAST_ANDES';
     scene.add(sunDisc);
 
+    // Nubes volumétricas multicapa estilo MSFS
     const cloudsGroup = new THREE.Group();
     const cloudMat = new THREE.MeshStandardMaterial({
-      color: 0xffedd5,
-      emissive: 0xc2410c,
-      emissiveIntensity: 0.25,
+      color: weather === 'GOLDEN_HOUR' ? 0xffedd5 : 0xf8fafc,
+      emissive: weather === 'GOLDEN_HOUR' ? 0xc2410c : 0x334155,
+      emissiveIntensity: weather === 'GOLDEN_HOUR' ? 0.28 : 0.12,
       roughness: 0.95,
       transparent: true,
-      opacity: 0.78,
+      opacity: weather === 'OVERCAST_ANDES' ? 0.88 : 0.76,
     });
     const puffGeo = new THREE.DodecahedronGeometry(1, 1);
-    for (let i = 0; i < 42; i++) {
+    for (let i = 0; i < 52; i++) {
       const cluster = new THREE.Group();
-      for (let p = 0; p < 4; p++) {
+      for (let p = 0; p < 5; p++) {
         const mesh = new THREE.Mesh(puffGeo, cloudMat);
-        mesh.scale.set(32 + Math.random() * 38, 8 + Math.random() * 9, 24 + Math.random() * 28);
-        mesh.position.set((p - 1.5) * 26, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 20);
+        mesh.scale.set(36 + Math.random() * 44, 8 + Math.random() * 10, 26 + Math.random() * 32);
+        mesh.position.set((p - 2) * 26, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 22);
         cluster.add(mesh);
       }
-      cluster.position.set((Math.random() - 0.5) * 2400, 175 + Math.random() * 145, (Math.random() - 0.5) * 2400);
+      cluster.position.set((Math.random() - 0.5) * 2800, 175 + Math.random() * 165, (Math.random() - 0.5) * 2800);
       cloudsGroup.add(cluster);
     }
     scene.add(cloudsGroup);
 
-    const terrainGeo = new THREE.PlaneGeometry(3400, 3400, 130, 130);
+    // Malla de terreno 4K regional de alta resolución
+    const terrainGeo = new THREE.PlaneGeometry(3800, 3800, 150, 150);
     terrainGeo.rotateX(-Math.PI / 2);
     const posAttr = terrainGeo.attributes.position;
     const colors: number[] = [];
@@ -963,9 +1062,9 @@ function FlightSim3DViewport({
         Math.sin(x * 0.012) * Math.cos(z * 0.012) * 34 +
         Math.sin(x * 0.032 + z * 0.025) * 14;
 
-      const andesBack = z < -620 || x > 550 ? Math.pow(Math.max(0, (-z - 620) / 1050, (x - 550) / 1100), 1.5) * 260 : 0;
+      const andesBack = z < -620 || x > 550 ? Math.pow(Math.max(0, (-z - 620) / 1050, (x - 550) / 1100), 1.5) * 280 : 0;
       const andesPeaks =
-        andesBack > 10 ? Math.abs(Math.sin(x * 0.0085 + z * 0.006)) * 120 : 0;
+        andesBack > 10 ? Math.abs(Math.sin(x * 0.0085 + z * 0.006)) * 130 : 0;
 
       const height = isSea
         ? -4
@@ -973,7 +1072,7 @@ function FlightSim3DViewport({
       posAttr.setY(i, height);
 
       if (isSea) {
-        colors.push(0.05, 0.22, 0.38);
+        colors.push(0.05, 0.24, 0.42);
       } else if (region.hasSnowPeaks && height > 210) {
         colors.push(0.95, 0.96, 0.99);
       } else if (height > 90) {
@@ -990,21 +1089,22 @@ function FlightSim3DViewport({
       new THREE.MeshStandardMaterial({
         map: createRegionalTerrainTexture(region, camId === 'CAM4_FLIR'),
         vertexColors: true,
-        roughness: 0.9,
+        roughness: 0.88,
       })
     );
     scene.add(terrainMesh);
 
+    // Pista de aterrizaje 4K + Torre de control + Luces PAPI
     const runwayGroup = new THREE.Group();
     const runwayMesh = new THREE.Mesh(
       new THREE.PlaneGeometry(42, 820),
-      new THREE.MeshStandardMaterial({ map: createRunwayTexture(airport.rwyLabel), roughness: 0.78 })
+      new THREE.MeshStandardMaterial({ map: createRunwayTexture(airport.rwyLabel), roughness: 0.76 })
     );
     runwayMesh.rotation.x = -Math.PI / 2;
     runwayMesh.position.set(0, 0.25, -260);
     runwayGroup.add(runwayMesh);
 
-    const edgeLightGeo = new THREE.SphereGeometry(0.7, 8, 8);
+    const edgeLightGeo = new THREE.SphereGeometry(0.72, 10, 10);
     const whiteLightMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
     const redLightMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
     const greenLightMat = new THREE.MeshBasicMaterial({ color: 0x22c55e });
@@ -1028,15 +1128,15 @@ function FlightSim3DViewport({
     });
     scene.add(runwayGroup);
 
-    const aircraftModel = buildDetailedAircraftMesh(aircraft, gearDown);
+    const aircraftModel = buildDetailedAircraftMesh(aircraft, gearDown, flapsDeg);
     scene.add(aircraftModel);
 
     const afterburnerMat = new THREE.MeshBasicMaterial({
       color: aircraft.id === 'H2_VALKYRIE' ? 0x38bdf8 : aircraft.id === 'SR_71' ? 0xf59e0b : 0x60a5fa,
       transparent: true,
-      opacity: 0.82,
+      opacity: 0.85,
     });
-    const afterburner = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.8, 16), afterburnerMat);
+    const afterburner = new THREE.Mesh(new THREE.ConeGeometry(0.38, 2.8, 18), afterburnerMat);
     afterburner.rotation.x = Math.PI / 2;
     afterburner.position.set(0, 0, 5.2);
     aircraftModel.add(afterburner);
@@ -1066,9 +1166,9 @@ function FlightSim3DViewport({
         const yHeight = 1.15 + st.simAltM * 0.22;
         aircraftModel.position.set(0, yHeight, zOnRunway);
       } else {
-        cruiseScroll += (st.simSpeedKmh / 3600) * 24;
+        cruiseScroll += (st.simSpeedKmh / 3600) * 26;
         terrainMesh.position.z = cruiseScroll % 200;
-        aircraftModel.position.set(0, 105 + Math.min(240, st.simAltM * 0.025), 0);
+        aircraftModel.position.set(0, 108 + Math.min(240, st.simAltM * 0.025), 0);
       }
 
       aircraftModel.rotation.set(pitchRad, 0, -rollRad);
@@ -1077,16 +1177,15 @@ function FlightSim3DViewport({
 
       cloudsGroup.children.forEach((c) => {
         c.position.z += 0.25;
-        if (c.position.z > 1200) c.position.z = -1200;
+        if (c.position.z > 1400) c.position.z = -1400;
       });
 
       const isFlir = st.camId === 'CAM4_FLIR';
-      scene.fog = new THREE.FogExp2(isFlir ? 0x18181b : st.region.fogHex, isFlir ? 0.00075 : 0.00044);
+      scene.fog = new THREE.FogExp2(isFlir ? 0x18181b : activeFog, isFlir ? 0.00075 : 0.00042);
       skyDome.visible = !isFlir;
-      sunDisc.visible = !isFlir;
-      renderer.setClearColor(isFlir ? 0x09090b : st.region.fogHex);
+      renderer.setClearColor(isFlir ? 0x09090b : activeFog);
 
-      camera.fov = st.camId === 'CAM2_GIMBAL' ? 28 : 60;
+      camera.fov = st.camId === 'CAM2_GIMBAL' ? 28 : 58;
       camera.updateProjectionMatrix();
 
       const panRad = (-st.panOffset * Math.PI) / 180;
@@ -1094,9 +1193,9 @@ function FlightSim3DViewport({
 
       if (st.camId === 'CAM8_EXTERNA') {
         aircraftModel.visible = true;
-        const dist = st.aircraft.id === 'SR_71' ? 15.5 : 12.5;
+        const dist = st.aircraft.id === 'SR_71' ? 15.5 : 12.2;
         const camX = aircraftModel.position.x + Math.sin(panRad) * Math.cos(tiltRad) * dist;
-        const camY = aircraftModel.position.y + 2.1 + Math.sin(tiltRad) * dist;
+        const camY = aircraftModel.position.y + 2.0 + Math.sin(tiltRad) * dist;
         const camZ = aircraftModel.position.z + Math.cos(panRad) * Math.cos(tiltRad) * dist;
         camera.position.set(camX, Math.max(1.2, camY), camZ);
         camera.lookAt(aircraftModel.position.clone().add(new THREE.Vector3(0, 0.3, -1.5)));
@@ -1142,17 +1241,22 @@ function FlightSim3DViewport({
         hCtx.clearRect(0, 0, w, h);
 
         if (!st.compact) {
+          const speedKt = st.simSpeedKmh * 0.539957;
           drawMsfsInstruments(hCtx, w, h, {
             heading: (st.simHeadingDeg + st.panOffset + 360) % 360,
             course: st.airport.rwyHeading,
-            speedKt: st.simSpeedKmh * 0.539957,
+            speedKt,
+            tasKt: speedKt * (1 + st.simAltM / 45000),
             altFt: st.simAltM * 3.28084,
-            vsFpm: st.simPitchDeg * 140,
+            vsFpm: st.simPitchDeg * 145,
             throttlePct: st.simSpeedKmh > 0 ? Math.min(100, 35 + (st.simSpeedKmh / st.aircraft.maxSpeedKmh) * 65) : 0,
             fuelPct: 84,
             aoaDeg: st.simPitchDeg,
             gearDown: st.gearDown,
+            flapsDeg: st.flapsDeg,
+            trimPct: st.trimPct,
             pitchDeg: st.simPitchDeg,
+            rollDeg: st.simRollDeg,
           });
         }
         hCtx.restore();
@@ -1170,7 +1274,7 @@ function FlightSim3DViewport({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [camId, aircraft, region, airport, gearDown]);
+  }, [camId, aircraft, region, airport, weather, gearDown, flapsDeg]);
 
   return (
     <div className="relative w-full h-full">
@@ -1185,10 +1289,12 @@ export default function App() {
   const [connected, setConnected] = useState(false);
   const [activeCam, setActiveCam] = useState<CameraId>('CAM8_EXTERNA');
   const [recording, setRecording] = useState(false);
+  const [fullscreenSim, setFullscreenSim] = useState(false);
 
   const [selectedAircraft, setSelectedAircraft] = useState<AircraftId>('H2_VALKYRIE');
   const [selectedAirportIcao, setSelectedAirportIcao] = useState<string>('SCAR');
   const [mapLayerId, setMapLayerId] = useState<MapLayerId>('SATELLITE');
+  const [weatherPreset, setWeatherPreset] = useState<WeatherPreset>('GOLDEN_HOUR');
   const [autoFollowMap, setAutoFollowMap] = useState<boolean>(true);
 
   const [flightPhase, setFlightPhase] = useState<FlightPhase>('PARKED');
@@ -1196,6 +1302,10 @@ export default function App() {
   const [localAltM, setLocalAltM] = useState<number>(0);
   const [localSpeedKmh, setLocalSpeedKmh] = useState<number>(0);
   const [localPitchDeg, setLocalPitchDeg] = useState<number>(0);
+  const [localRollDeg, setLocalRollDeg] = useState<number>(0);
+  const [flapsDeg, setFlapsDeg] = useState<number>(15);
+  const [trimPct, setTrimPct] = useState<number>(0);
+  const [autopilotEngaged, setAutopilotEngaged] = useState<boolean>(true);
 
   const [editLayoutMode, setEditLayoutMode] = useState<boolean>(false);
   const [panelOrder, setPanelOrder] = useState<PanelId[]>(() => {
@@ -1274,6 +1384,23 @@ export default function App() {
     };
   }, []);
 
+  // Controles de vuelo por teclado estilo Flight Simulator (W/S/A/D, G, F, Esc)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && fullscreenSim) setFullscreenSim(false);
+      if (e.key === 'g' || e.key === 'G') setGearDown((g) => !g);
+      if (e.key === 'f' || e.key === 'F') setFlapsDeg((f) => (f === 0 ? 15 : f === 15 ? 30 : 0));
+      if (!autopilotEngaged) {
+        if (e.key === 'w' || e.key === 'W') setLocalPitchDeg((p) => Math.max(-25, p - 1.5));
+        if (e.key === 's' || e.key === 'S') setLocalPitchDeg((p) => Math.min(25, p + 1.5));
+        if (e.key === 'a' || e.key === 'A') setLocalRollDeg((r) => Math.max(-45, r - 2.5));
+        if (e.key === 'd' || e.key === 'D') setLocalRollDeg((r) => Math.min(45, r + 2.5));
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullscreenSim, autopilotEngaged]);
+
   useEffect(() => {
     const interval = setInterval(() => {
       setFlightPhase((phase) => {
@@ -1292,7 +1419,10 @@ export default function App() {
             const nextAlt = alt + 18 * aircraft.altMultiplier;
             setRunwayProgress((p) => Math.min(1.5, p + 0.015));
             setLocalSpeedKmh((s) => Math.min(aircraft.maxSpeedKmh * 0.82, s + 14 * aircraft.speedMultiplier));
-            if (nextAlt > 180) setGearDown(false);
+            if (nextAlt > 180) {
+              setGearDown(false);
+              setFlapsDeg(0);
+            }
             if (nextAlt >= 1200) {
               setLocalPitchDeg(2);
               setFlightPhase('CRUISE');
@@ -1300,11 +1430,17 @@ export default function App() {
             return nextAlt;
           });
         } else if (phase === 'CRUISE') {
-          setLocalAltM((data?.alt ?? 1200) * aircraft.altMultiplier || 1200);
-          setLocalSpeedKmh((data?.speed ?? 230) * aircraft.speedMultiplier || aircraft.maxSpeedKmh * 0.8);
-          setLocalPitchDeg(data?.pitch ?? 0);
+          if (autopilotEngaged) {
+            setLocalAltM((data?.alt ?? 1200) * aircraft.altMultiplier || 1200);
+            setLocalSpeedKmh((data?.speed ?? 230) * aircraft.speedMultiplier || aircraft.maxSpeedKmh * 0.8);
+            setLocalPitchDeg(data?.pitch ?? 0);
+            setLocalRollDeg(data?.roll ?? 0);
+          } else {
+            setLocalAltM((a) => Math.max(50, a + localPitchDeg * 1.4));
+          }
         } else if (phase === 'APPROACH') {
           setGearDown(true);
+          setFlapsDeg(30);
           setLocalPitchDeg(-3.5);
           setLocalSpeedKmh((s) => Math.max(aircraft.vApproachKmh, s * 0.96));
           setLocalAltM((alt) => {
@@ -1333,7 +1469,7 @@ export default function App() {
       });
     }, 100);
     return () => clearInterval(interval);
-  }, [aircraft, data, localSpeedKmh]);
+  }, [aircraft, data, localSpeedKmh, autopilotEngaged, localPitchDeg]);
 
   const handleSelectAirport = (icao: string) => {
     setSelectedAirportIcao(icao);
@@ -1350,6 +1486,7 @@ export default function App() {
       setLocalSpeedKmh(0);
       setLocalPitchDeg(0);
       setGearDown(true);
+      setFlapsDeg(15);
       setFlightPhase('PARKED');
     }
   };
@@ -1358,6 +1495,7 @@ export default function App() {
     setPreflightChecked(true);
     setH2CellIgnited(true);
     setGearDown(true);
+    setFlapsDeg(15);
     setRunwayProgress(0.02);
     setLocalAltM(0);
     setLocalSpeedKmh(25);
@@ -1368,6 +1506,7 @@ export default function App() {
 
   const triggerLandingAtAirport = () => {
     setGearDown(true);
+    setFlapsDeg(30);
     setRunwayProgress(-0.38);
     setLocalAltM(390);
     setLocalSpeedKmh(aircraft.vApproachKmh * 1.25);
@@ -1500,7 +1639,7 @@ export default function App() {
   const renderCameraViewport = (camId: CameraId, compact = false) => {
     const camMeta = CAMERAS.find((c) => c.id === camId) || CAMERAS[0];
     const hdg = flightPhase === 'CRUISE' && data ? data.heading : currentAirport.rwyHeading;
-    const roll = flightPhase === 'CRUISE' && data ? data.roll : 0;
+    const roll = flightPhase === 'CRUISE' && data && autopilotEngaged ? data.roll : localRollDeg;
 
     return (
       <div
@@ -1530,22 +1669,25 @@ export default function App() {
           aircraft={aircraft}
           region={currentRegion}
           airport={currentAirport}
-          flightPhase={flightPhase}
+          weather={weatherPreset}
           simAltM={Math.round(localAltM)}
           simSpeedKmh={Math.round(localSpeedKmh)}
           simPitchDeg={Number(localPitchDeg.toFixed(1))}
-          simRollDeg={roll}
+          simRollDeg={Number(roll.toFixed(1))}
           simHeadingDeg={hdg}
           runwayProgress={runwayProgress}
           gearDown={gearDown}
+          flapsDeg={flapsDeg}
+          trimPct={trimPct}
           panOffset={compact ? camMeta.basePan : camPan}
           tiltOffset={compact ? 0 : camTilt}
           compact={compact}
         />
 
         {!compact ? (
-          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 bg-black/75 border border-zinc-700/80 px-3 py-1 rounded-full text-[11px] font-mono text-amber-300 shadow">
-            {currentRegion.code} • {currentRegion.name} ({flightPhase})
+          <div className="absolute top-2.5 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 border border-zinc-700/80 px-3.5 py-1 rounded-full text-[11px] font-mono text-amber-300 shadow-lg">
+            <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+            <span>4K PBR • {currentRegion.code} {currentRegion.name} ({flightPhase})</span>
           </div>
         ) : (
           <div className="absolute bottom-1 left-1.5 right-1.5 flex justify-between text-[9px] font-mono text-cyan-300 bg-black/85 px-1.5 py-0.5 rounded">
@@ -1558,6 +1700,127 @@ export default function App() {
   };
 
   const isHumanControl = data?.authority === 'HUMAN_OPERATOR';
+
+  // MODO PANTALLA COMPLETA TIPO MICROSOFT FLIGHT SIMULATOR 4K
+  if (fullscreenSim) {
+    return (
+      <div className="fixed inset-0 bg-black text-zinc-100 z-50 flex flex-col">
+        {/* Barra superior de cabina MSFS 4K */}
+        <div className="bg-black/90 border-b border-zinc-800 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+              <Monitor className="w-4 h-4" /> MODO SIMULADOR 4K // {aircraft.name}
+            </span>
+            <span className="text-[11px] font-mono text-zinc-400">
+              {currentAirport.icao} ({currentAirport.rwyLabel}) • ILS {currentAirport.ilsFreq}
+            </span>
+          </div>
+
+          {/* Selector rápido de cámaras y clima en 4K */}
+          <div className="flex flex-wrap items-center gap-1">
+            {CAMERAS.slice(0, 5).map((c) => (
+              <button
+                key={c.id}
+                onClick={() => handleSelectCamera(c.id)}
+                className={`text-[10px] px-2 py-1 rounded font-mono cursor-pointer ${
+                  activeCam === c.id ? 'bg-cyan-600 text-white font-bold' : 'bg-zinc-900 text-zinc-300 hover:bg-zinc-800'
+                }`}
+              >
+                {c.short}
+              </button>
+            ))}
+            <button
+              onClick={() => setWeatherPreset('GOLDEN_HOUR')}
+              className={`text-[10px] px-2 py-1 rounded cursor-pointer ${weatherPreset === 'GOLDEN_HOUR' ? 'bg-amber-500 text-black font-bold' : 'bg-zinc-900 text-zinc-300'}`}
+            >
+              Atardecer
+            </button>
+            <button
+              onClick={() => setWeatherPreset('CLEAR_DAY')}
+              className={`text-[10px] px-2 py-1 rounded cursor-pointer ${weatherPreset === 'CLEAR_DAY' ? 'bg-sky-500 text-black font-bold' : 'bg-zinc-900 text-zinc-300'}`}
+            >
+              Día 4K
+            </button>
+            <button
+              onClick={() => setWeatherPreset('NIGHT_NVG')}
+              className={`text-[10px] px-2 py-1 rounded cursor-pointer ${weatherPreset === 'NIGHT_NVG' ? 'bg-emerald-500 text-black font-bold' : 'bg-zinc-900 text-zinc-300'}`}
+            >
+              Nocturno
+            </button>
+          </div>
+
+          <button
+            onClick={() => setFullscreenSim(false)}
+            className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1.5 cursor-pointer"
+          >
+            <Minimize2 className="w-4 h-4" /> Salir Pantalla Completa (ESC)
+          </button>
+        </div>
+
+        {/* Visor 3D 4K principal */}
+        <div className="flex-1 relative">
+          {renderCameraViewport(activeCam === 'MULTI_7' ? 'CAM8_EXTERNA' : activeCam, false)}
+        </div>
+
+        {/* Consola inferior de cabina (Autopilot, Despegue, Aterrizaje, Flaps, Trim, Aeropuertos) */}
+        <div className="bg-zinc-950/95 border-t border-zinc-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-xs font-mono">
+          <div className="flex items-center gap-1.5">
+            <button onClick={triggerTakeoff} className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-3 py-1.5 rounded flex items-center gap-1 cursor-pointer">
+              <PlaneTakeoff className="w-4 h-4" /> DESPEGAR
+            </button>
+            <button onClick={triggerLandingAtAirport} className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold px-3 py-1.5 rounded flex items-center gap-1 cursor-pointer">
+              <PlaneLanding className="w-4 h-4" /> ATERRIZAR ILS
+            </button>
+            <button
+              onClick={() => setAutopilotEngaged(!autopilotEngaged)}
+              className={`px-3 py-1.5 rounded font-bold border cursor-pointer ${
+                autopilotEngaged ? 'bg-cyan-950 border-cyan-500 text-cyan-300' : 'bg-amber-500 text-black border-amber-400'
+              }`}
+            >
+              {autopilotEngaged ? 'AP: ON' : 'MANUAL (WASD)'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setGearDown(!gearDown)}
+              className={`px-2.5 py-1.5 rounded font-bold border cursor-pointer ${
+                gearDown ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-zinc-900 border-zinc-700 text-emerald-400'
+              }`}
+            >
+              GEAR: {gearDown ? 'DOWN' : 'UP'}
+            </button>
+            <button
+              onClick={() => setFlapsDeg((f) => (f === 0 ? 15 : f === 15 ? 30 : 0))}
+              className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 px-2.5 py-1.5 rounded text-cyan-300 cursor-pointer"
+            >
+              FLAPS: {flapsDeg}°
+            </button>
+            <button
+              onClick={() => setTrimPct((t) => (t >= 10 ? -10 : t + 5))}
+              className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 px-2.5 py-1.5 rounded text-zinc-300 cursor-pointer"
+            >
+              TRIM: {trimPct}%
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1">
+            {CHILE_AIRPORTS.map((ap) => (
+              <button
+                key={ap.icao}
+                onClick={() => handleSelectAirport(ap.icao)}
+                className={`px-2 py-1 rounded text-[10px] border cursor-pointer ${
+                  ap.icao === selectedAirportIcao ? 'bg-cyan-600 border-cyan-400 text-white font-bold' : 'bg-zinc-900 border-zinc-800 text-zinc-400'
+                }`}
+              >
+                {ap.icao}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderModule = (panelId: PanelId) => {
     const spanClass = panelSpans[panelId] === 2 ? 'lg:col-span-2' : 'lg:col-span-1';
@@ -1597,13 +1860,34 @@ export default function App() {
 
     if (panelId === 'CAMERAS') {
       return wrapWithFrame(
-        'SIMULADOR FLIGHT SIMULATOR 3D',
+        'SIMULADOR FLIGHT SIMULATOR 4K',
         <>
-          <div className="px-3 py-2 bg-black border-b border-zinc-800 flex items-center justify-between">
+          <div className="px-3 py-2 bg-black border-b border-zinc-800 flex flex-wrap items-center justify-between gap-1.5">
             <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400">
-              <Camera className="w-4 h-4" /> VISOR FLIGHT SIMULATOR 3D (8 CÁMARAS 360°)
+              <Camera className="w-4 h-4" /> FLIGHT SIMULATOR 4K (8 CÁMARAS 360°)
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setWeatherPreset('GOLDEN_HOUR')}
+                className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${weatherPreset === 'GOLDEN_HOUR' ? 'bg-amber-500 text-black font-bold' : 'bg-zinc-900 text-zinc-400'}`}
+                title="Atardecer"
+              >
+                <Sun className="w-3 h-3 inline" />
+              </button>
+              <button
+                onClick={() => setWeatherPreset('CLEAR_DAY')}
+                className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${weatherPreset === 'CLEAR_DAY' ? 'bg-sky-500 text-black font-bold' : 'bg-zinc-900 text-zinc-400'}`}
+                title="Día Despejado"
+              >
+                4K
+              </button>
+              <button
+                onClick={() => setWeatherPreset('OVERCAST_ANDES')}
+                className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${weatherPreset === 'OVERCAST_ANDES' ? 'bg-slate-400 text-black font-bold' : 'bg-zinc-900 text-zinc-400'}`}
+                title="Nubes Andes"
+              >
+                <CloudRain className="w-3 h-3 inline" />
+              </button>
               <button
                 onClick={() => {
                   const cam = CAMERAS.find((c) => c.id === activeCam);
@@ -1621,6 +1905,12 @@ export default function App() {
                 }`}
               >
                 <Grid className="w-3 h-3" /> MOSAICO
+              </button>
+              <button
+                onClick={() => setFullscreenSim(true)}
+                className="text-[10px] px-2 py-0.5 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-bold flex items-center gap-1 cursor-pointer"
+              >
+                <Maximize2 className="w-3 h-3" /> 4K FULL
               </button>
               <button
                 onClick={() => setRecording(!recording)}
@@ -1657,7 +1947,7 @@ export default function App() {
             </button>
           </div>
 
-          <div className="relative flex-1 min-h-[390px] bg-black">
+          <div className="relative flex-1 min-h-[410px] bg-black">
             {activeCam === 'MULTI_7' ? (
               <div className="w-full h-full grid grid-cols-3 grid-rows-3 gap-1.5 p-1.5 bg-black">
                 {CAMERAS.map((c) => (
@@ -1746,20 +2036,30 @@ export default function App() {
 
     if (panelId === 'FLIGHT_OPS') {
       return wrapWithFrame(
-        'PROCEDIMIENTO DESPEGUE Y ATERRIZAJE',
+        'CABINA DE VUELO, FLAPS, PILOTO AUTOMÁTICO Y PISTA',
         <div className="p-3 bg-black space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-xs font-bold text-cyan-400">
-              OPERACIONES // {currentAirport.icao} - {currentAirport.name} ({currentAirport.rwyLabel})
+            <span className="text-xs font-bold text-cyan-400 flex items-center gap-1.5">
+              <Radio className="w-4 h-4" /> {currentAirport.icao} - {currentAirport.name} ({currentAirport.rwyLabel} • ILS {currentAirport.ilsFreq})
             </span>
-            <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-              gearDown ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40'
-            }`}>
-              TREN: {gearDown ? 'EXTENDIDO (DOWN)' : 'RETRAÍDO (UP)'}
-            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setAutopilotEngaged(!autopilotEngaged)}
+                className={`text-[10px] font-mono px-2 py-0.5 rounded border cursor-pointer ${
+                  autopilotEngaged ? 'bg-cyan-950/80 text-cyan-300 border-cyan-500/50' : 'bg-amber-500 text-black font-bold border-amber-400'
+                }`}
+              >
+                {autopilotEngaged ? 'AUTOPILOT: ON' : 'CONTROL MANUAL (WASD)'}
+              </button>
+              <span className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
+                gearDown ? 'bg-amber-500/10 text-amber-400 border-amber-500/40' : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/40'
+              }`}>
+                TREN: {gearDown ? 'DOWN' : 'UP'}
+              </span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-5 gap-1.5 text-xs">
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5 text-xs">
             <button
               onClick={() => setPreflightChecked(true)}
               className={`py-2 px-2 rounded-lg font-semibold flex items-center justify-center gap-1 border cursor-pointer ${
@@ -1807,6 +2107,14 @@ export default function App() {
             >
               {gearDown ? <ArrowUpCircle className="w-4 h-4 shrink-0" /> : <ArrowDownCircle className="w-4 h-4 shrink-0" />}
               <span>{gearDown ? 'Subir Tren' : 'Bajar Tren'}</span>
+            </button>
+
+            <button
+              onClick={() => setFlapsDeg((f) => (f === 0 ? 15 : f === 15 ? 30 : 0))}
+              className="py-2 px-2 rounded-lg font-bold flex items-center justify-center gap-1 bg-zinc-900 hover:bg-zinc-800 text-cyan-300 border border-zinc-700 cursor-pointer"
+            >
+              <Sliders className="w-4 h-4 shrink-0" />
+              <span>Flaps {flapsDeg}°</span>
             </button>
           </div>
         </div>
@@ -1912,7 +2220,7 @@ export default function App() {
             <div className="flex items-center gap-2">
               <h1 className="font-bold tracking-wider text-sm text-white">GCS // {aircraft.name}</h1>
               <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${connected ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'}`}>
-                {connected ? 'TELEMETRÍA LIVE' : 'SIMULACIÓN LOCAL'}
+                {connected ? 'TELEMETRÍA LIVE' : 'SIMULACIÓN 4K'}
               </span>
             </div>
             <p className="text-[11px] text-zinc-400">{currentRegion.name} • <span className="text-cyan-400 font-mono">{currentAirport.icao} ({currentAirport.city})</span></p>
@@ -1940,6 +2248,13 @@ export default function App() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setFullscreenSim(true)}
+            className="bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs px-3 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer"
+          >
+            <Monitor className="w-4 h-4" /> Simulador 4K Full
+          </button>
+
+          <button
             onClick={() => setEditLayoutMode(!editLayoutMode)}
             className={`font-bold text-xs px-3 py-2 rounded-lg flex items-center gap-1.5 border cursor-pointer transition ${
               editLayoutMode
@@ -1956,7 +2271,7 @@ export default function App() {
               onClick={resetLayout}
               className="bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-xs px-2.5 py-2 rounded-lg text-zinc-300 cursor-pointer"
             >
-              Restaurar Orden
+              Restaurar
             </button>
           )}
 
