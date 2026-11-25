@@ -109,15 +109,17 @@ export default function App() {
       zoomControl: false,
     });
 
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-      attribution: '&copy; OpenStreetMap &copy; CARTO',
+    // Mapa OpenStreetMap estándar (sin API Key, muestra ciudades y rutas de Chile)
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors',
     }).addTo(map);
 
+    // Geofence nacional visual
     L.rectangle([[-56.0, -76.0], [-17.5, -66.5]], {
       color: '#ef4444',
-      weight: 1,
+      weight: 2,
       dashArray: '6, 6',
-      fillOpacity: 0.02,
+      fillOpacity: 0.03,
     }).addTo(map);
 
     map.on('click', (e: L.LeafletMouseEvent) => {
@@ -131,8 +133,8 @@ export default function App() {
     });
 
     wpLayerRef.current = L.layerGroup().addTo(map);
-    routeLineRef.current = L.polyline([], { color: '#38bdf8', weight: 2, dashArray: '5,5' }).addTo(map);
-    trailLineRef.current = L.polyline([], { color: '#10b981', weight: 3 }).addTo(map);
+    routeLineRef.current = L.polyline([], { color: '#0284c7', weight: 3, dashArray: '6,6' }).addTo(map);
+    trailLineRef.current = L.polyline([], { color: '#059669', weight: 4 }).addTo(map);
     mapRef.current = map;
   }, []);
 
@@ -141,13 +143,13 @@ export default function App() {
 
     const planeIcon = L.divIcon({
       className: 'custom-uav-icon',
-      html: `<div style="transform: rotate(${data.heading}deg); width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
-        <svg viewBox="0 0 24 24" width="26" height="26" fill="#38bdf8" stroke="#0f172a" stroke-width="1.5">
+      html: `<div style="transform: rotate(${data.heading}deg); width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="#0ea5e9" stroke="#0f172a" stroke-width="1.8">
           <path d="M12 2L15 10L22 14L14 15L13 21L12 19L11 21L10 15L2 14L9 10L12 2Z"/>
         </svg>
       </div>`,
-      iconSize: [28, 28],
-      iconAnchor: [14, 14],
+      iconSize: [30, 30],
+      iconAnchor: [15, 15],
     });
 
     if (!planeMarkerRef.current) {
@@ -164,10 +166,10 @@ export default function App() {
     data.waypoints.forEach((wp, i) => {
       const isCurrent = i === data.current_wp_idx;
       L.circleMarker([wp.lat, wp.lon], {
-        radius: isCurrent ? 7 : 4,
-        color: isCurrent ? '#f59e0b' : '#38bdf8',
+        radius: isCurrent ? 8 : 5,
+        color: isCurrent ? '#d97706' : '#0369a1',
         fillColor: isCurrent ? '#f59e0b' : '#0284c7',
-        fillOpacity: 0.9,
+        fillOpacity: 0.95,
       })
         .bindTooltip(`${wp.name} (${wp.alt}m)`, { direction: 'right' })
         .addTo(wpLayerRef.current!);
